@@ -1,0 +1,74 @@
+{
+  "name": "yuh-studio-decompiled",
+  "version": "0.8.0",
+  "private": true,
+  "description": "YUH Studio extracted Electron project for local development",
+  "author": "OpenAI Codex",
+  "main": "dev-src/main/index.js",
+  "scripts": {
+    "sync-engine": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-engine.ps1",
+    "start": "npm run sync-engine && electron .",
+    "start:dev": "npm run sync-engine && electron .",
+    "dev": "npm run sync-engine && electron .",
+    "check": "node --check dev-src/main/index.js && node --check dev-src/preload/index.js && node --check dev-src/renderer/assets/index-B9rdyvCR.js",
+    "typecheck": "tsc --noEmit -p ui-src/tsconfig.json",
+    "ui:dev": "vite --config ui-src/vite.config.mts",
+    "ui:build": "vite build --config ui-src/vite.config.mts",
+    "start:ui": "npm run sync-engine && node scripts/start-ui-dev.mjs",
+    "dist": "npm run check && electron-builder",
+    "dist:ui": "npm run ui:build && electron-builder"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "docx": "^9.7.1",
+    "fabric": "^6.9.0",
+    "lucide-react": "^0.468.0",
+    "opentype.js": "1.3.4",
+    "paper": "^0.12.18",
+    "pdf-to-img": "^6.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sharp": "0.34.5",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "44.0.0",
+    "electron-builder": "latest",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "build": {
+    "appId": "com.yuhstudio.decompiled",
+    "productName": "YUH Studio",
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dev-src/**/*",
+      "ui-build/**/*",
+      "build/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bundled-resources",
+        "to": "bundled-resources",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/yunhui.ico"
+    }
+  }
+}

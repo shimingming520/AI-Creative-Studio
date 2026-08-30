@@ -58,7 +58,7 @@ ShuoCanvas/app/.electron-dev-app/
 # ============================================================
 YUH-Studio/node_modules/
 YUH-Studio/release/
-YUH-Studio/bundled-resources/llama.cpp/
+YUH-Studio/bundled-resources/
 YUH-Studio/app-full/
 YUH-Studio/app-readable/
 YUH-Studio/ui-build/

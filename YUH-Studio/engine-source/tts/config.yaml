@@ -1,0 +1,82 @@
+# ============================================
+# Qwen3-TTS Pro 配置文件
+# ============================================
+
+# 服务器配置
+server:
+  ip: "0.0.0.0"
+  port: 7860
+  share: false
+  ssl_certfile: null
+  ssl_keyfile: null
+
+# 模型配置
+model:
+  # 默认模型路径（留空则使用 HuggingFace）
+  custom_path: null
+
+  # 模型加载配置
+  device: "cuda:0"  # cuda:0, cpu, cuda:1 等
+  dtype: "bfloat16"  # bfloat16, float16, float32
+  flash_attention: true  # 启用 FlashAttention 2 加速
+
+  # 模型下载路径
+  cache_dir: "./models"
+
+  # 可用的预置模型
+  models:
+    custom_voice: "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+    voice_design: "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+    voice_clone: "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+
+# 生成配置
+generation:
+  # 最大生成长度（token 数）
+  max_new_tokens: 2048
+
+  # 采样参数
+  temperature: 1.0
+  top_k: null
+  top_p: null
+  repetition_penalty: null
+
+  # Subtalker 参数（仅 tokenizer v2）
+  subtalker_temperature: null
+  subtalker_top_k: null
+  subtalker_top_p: null
+
+# UI 配置
+ui:
+  # 主题
+  theme: "soft"  # soft, default, glass
+
+  # 语言
+  language: "zh-CN"  # zh-CN, en-US
+
+  # 并发数
+  concurrency: 16
+
+  # 是否显示免责声明
+  show_disclaimer: true
+
+# 输出配置
+output:
+  # 默认输出目录
+  output_dir: "./outputs"
+
+  # 音频格式
+  audio_format: "wav"  # wav, mp3, flac
+
+  # 采样率
+  sample_rate: 24000
+
+# 日志配置
+logging:
+  # 日志级别
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+  # 日志文件路径
+  file: "./logs/qwen3_tts_pro.log"
+
+  # 是否显示详细日志
+  verbose: true

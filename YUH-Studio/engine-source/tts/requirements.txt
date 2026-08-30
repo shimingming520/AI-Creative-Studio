@@ -1,0 +1,28 @@
+# Qwen3-TTS Pro Edition - 依赖包列表
+
+# 核心依赖
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers==4.57.3
+accelerate==1.12.0
+
+# Web UI
+gradio>=4.0.0
+
+# 音频处理
+librosa>=0.10.0
+soundfile>=0.12.0
+sox>=1.4.1
+onnxruntime>=1.16.0
+
+# 其他依赖
+einops>=0.7.0
+numpy>=1.24.0
+
+# 可选依赖（加速）
+# flash-attn>=2.0.0  # 需要手动安装，见 README
+
+# 开发依赖（可选）
+# jupyter>=1.0.0
+# ipykernel>=6.0.0
+# matplotlib>=3.7.0
