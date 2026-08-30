@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-teach",
+  "title": "Teach（教学模式）",
+  "riskLevel": "safe",
+  "category": "productivity",
+  "appliesWhen": [
+    "学习",
+    "教学",
+    "教程",
+    "指导",
+    "teach",
+    "lesson",
+    "tutorial",
+    "概念讲解"
+  ],
+  "requiredInputs": [
+    "学习主题"
+  ],
+  "missingInputQuestions": [
+    "你想学习什么主题或技能？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": []
+}

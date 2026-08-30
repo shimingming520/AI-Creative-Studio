@@ -1,0 +1,67 @@
+# ============================================================
+# AI-Creative-Studio monorepo 根 .gitignore
+# 原则：源码/配置/资产跟踪；一切可再生的构建产物与第三方依赖不跟踪。
+# ============================================================
+
+# ---- 通用 ----
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+.idea/
+.vscode/
+*.iml
+
+# ---- Node ----
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- 环境变量 ----
+.env
+.env.*
+!.env.example
+
+# ============================================================
+# Serpent（.vite 构建产物、平台二进制资源、构建目录）
+# ============================================================
+Serpent/.vite/
+Serpent/dist/
+Serpent/out/
+Serpent/coverage/
+Serpent/playwright-report/
+Serpent/test-results/
+Serpent/.media-build/
+Serpent/.dolt/
+Serpent/.beads/
+Serpent/resources/ffmpeg/
+Serpent/resources/oiio/
+Serpent/resources/media-binaries/
+
+# ============================================================
+# ShuoCanvas（构建产物、反分析工具）
+# ============================================================
+ShuoCanvas/.tools/
+ShuoCanvas/.tmp-*/
+ShuoCanvas/dist/
+ShuoCanvas/runtime/
+ShuoCanvas/app/node_modules/
+ShuoCanvas/app/.electron-runtime/
+ShuoCanvas/app/.electron-shell/
+ShuoCanvas/app/.electron-dev-app/
+
+# ============================================================
+# YUH-Studio（构建产物、打包输出、内置引擎/模型、反编译目录）
+# ============================================================
+YUH-Studio/node_modules/
+YUH-Studio/release/
+YUH-Studio/bundled-resources/llama.cpp/
+YUH-Studio/app-full/
+YUH-Studio/app-readable/
+YUH-Studio/ui-build/
+YUH-Studio/engine-source/node_modules/
+YUH-Studio/engine-source/out/
+YUH-Studio/engine-source/yunhui_tools/__pycache__/

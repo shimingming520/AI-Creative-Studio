@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-handoff",
+  "title": "Handoff（交接文档）",
+  "riskLevel": "safe",
+  "category": "productivity",
+  "appliesWhen": [
+    "工作交接",
+    "handoff document",
+    "上下文传递",
+    "交接文档",
+    "继续工作",
+    "任务交接"
+  ],
+  "requiredInputs": [
+    "交接上下文"
+  ],
+  "missingInputQuestions": [
+    "当前工作进展到哪一步了？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": [
+    "graph.getCanvasSummary",
+    "graph.getSelection"
+  ]
+}

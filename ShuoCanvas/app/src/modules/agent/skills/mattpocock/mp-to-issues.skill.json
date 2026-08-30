@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-to-issues",
+  "title": "To Issues（拆分为任务）",
+  "riskLevel": "confirm",
+  "category": "engineering",
+  "appliesWhen": [
+    "拆分任务",
+    "创建 issues",
+    "vertical slices",
+    "任务分解",
+    "PRD 拆分",
+    "issue tracker"
+  ],
+  "requiredInputs": [
+    "要拆分的计划"
+  ],
+  "missingInputQuestions": [
+    "你想拆分什么计划或需求？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": [
+    "graph.getCanvasSummary"
+  ]
+}

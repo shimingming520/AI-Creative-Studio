@@ -1,0 +1,271 @@
+﻿.panorama-asset-browser,
+.panorama-pose-panel {
+  position: absolute;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(70vh, 520px);
+  padding: var(--space-10);
+  box-sizing: border-box;
+  border: 1px solid var(--panorama-scene-current-toolbar-border);
+  border-radius: var(--radius-8);
+  background: var(--panorama-scene-current-menu-bg);
+  color: var(--panorama-scene-current-toolbar-fg);
+  box-shadow: var(--panorama-scene-current-toolbar-shadow);
+  backdrop-filter: blur(var(--panorama-scene-toolbar-blur));
+  -webkit-backdrop-filter: blur(var(--panorama-scene-toolbar-blur));
+  transform: translate(-50%, calc(-100% - 9px));
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transition: opacity 0.16s ease;
+}
+.panorama-asset-browser.is-visible,
+.panorama-pose-panel.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.panorama-asset-browser__header,
+.panorama-pose-panel__bone-row,
+.panorama-pose-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+.panorama-asset-browser__title,
+.panorama-pose-panel__header strong {
+  font-size: var(--font-12);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.panorama-asset-browser__category,
+.panorama-asset-browser__search,
+.panorama-camera-timeline__duration,
+.panorama-camera-timeline__fps,
+.panorama-pose-panel__bone,
+.panorama-pose-panel__preset {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--stroke-default);
+  border-radius: var(--radius-6);
+  background: var(--bg-panel-card);
+  color: var(--text-primary);
+  padding: 0 var(--space-8);
+  font-size: var(--font-12);
+  box-sizing: border-box;
+}
+.panorama-asset-browser__search {
+  width: 100%;
+  margin: var(--space-8) 0;
+}
+.panorama-asset-browser__results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-6);
+  max-height: min(48vh, 360px);
+  overflow: auto;
+}
+.panorama-asset-browser__item {
+  min-width: 0;
+  min-height: 74px;
+  padding: var(--space-6);
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  background: 0 0;
+  color: currentColor;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+.panorama-asset-browser__item:focus-visible,
+.panorama-asset-browser__item:hover {
+  border-color: var(--blue-40);
+  background: var(--white-06);
+  outline: 0;
+}
+.panorama-asset-browser__preview {
+  width: 28px;
+  height: 24px;
+  border: 2px solid currentColor;
+  box-sizing: border-box;
+  opacity: 0.8;
+}
+.panorama-asset-browser__preview[data-asset-primitive="sphere"] {
+  border-radius: var(--radius-999);
+}
+.panorama-asset-browser__preview[data-asset-primitive="cylinder"] {
+  border-radius: var(--radius-999) var(--radius-999) var(--radius-6)
+    var(--radius-6);
+}
+.panorama-asset-browser__preview[data-asset-primitive="torus"] {
+  border-width: 5px;
+  border-radius: var(--radius-999);
+}
+.panorama-asset-browser__label {
+  width: 100%;
+  font-size: var(--font-11);
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panorama-asset-browser__empty {
+  padding: var(--space-16) 0;
+  text-align: center;
+  font-size: var(--font-12);
+  opacity: 0.68;
+}
+.panorama-pose-panel {
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.panorama-pose-panel.is-disabled {
+  opacity: 0.58;
+}
+.panorama-pose-panel__preset {
+  flex: 1 1 auto;
+}
+.panorama-pose-panel__bone {
+  width: 100%;
+}
+.panorama-pose-panel__sliders {
+  display: grid;
+  gap: var(--space-6);
+}
+.panorama-pose-panel__axis {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--font-11);
+}
+.panorama-pose-panel__axis input {
+  width: 100%;
+  margin: 0;
+}
+.panorama-pose-panel__axis output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.panorama-pose-panel__save {
+  height: 30px;
+  border: 1px solid var(--stroke-default);
+  border-radius: var(--radius-6);
+  background: 0 0;
+  color: currentColor;
+  font-size: var(--font-12);
+}
+.panorama-camera-timeline {
+  position: absolute;
+  left: 50%;
+  bottom: 72px;
+  width: min(760px, calc(100% - 32px));
+  min-height: 48px;
+  transform: translateX(-50%);
+  padding: var(--space-8);
+  border: 1px solid var(--panorama-scene-current-toolbar-border);
+  border-radius: var(--radius-8);
+  background: var(--panorama-scene-current-menu-bg);
+  color: var(--panorama-scene-current-toolbar-fg);
+  box-shadow: var(--panorama-scene-current-toolbar-shadow);
+  display: grid;
+  grid-template-columns: 32px 32px 56px minmax(140px, 1fr) 64px 76px auto;
+  align-items: center;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.panorama-camera-timeline.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.panorama-scene-component.has-camera-timeline
+  .panorama-scene-bottom-toolbar-popovers {
+  transform: translateY(-72px);
+}
+.panorama-camera-timeline__icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-6);
+  background: 0 0;
+  color: currentColor;
+  font-size: var(--font-14);
+}
+.panorama-camera-timeline__icon:focus-visible,
+.panorama-camera-timeline__icon:hover {
+  background: var(--white-06);
+  outline: 1px solid var(--blue-40);
+}
+.panorama-camera-timeline__time {
+  font-size: var(--font-11);
+  font-variant-numeric: tabular-nums;
+}
+.panorama-camera-timeline__track-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 34px;
+  padding-bottom: 14px;
+  box-sizing: border-box;
+}
+.panorama-camera-timeline__track {
+  width: 100%;
+  margin: 0;
+}
+.panorama-camera-timeline__markers {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 1px;
+  height: 12px;
+  pointer-events: none;
+}
+.panorama-camera-timeline__marker {
+  position: absolute;
+  left: var(--panorama-keyframe-position, 0);
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid var(--panorama-scene-current-toolbar-fg);
+  border-radius: 2px;
+  background: var(--blue-20);
+  color: currentColor;
+  transform: translateX(-50%) rotate(45deg);
+  pointer-events: auto;
+}
+.panorama-camera-timeline__marker.is-current,
+.panorama-camera-timeline__marker:focus-visible,
+.panorama-camera-timeline__marker:hover {
+  background: var(--blue-40);
+  outline: 0;
+}
+.panorama-camera-timeline__duration {
+  width: 64px;
+}
+.panorama-camera-timeline__loop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--font-11);
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .panorama-asset-browser__results {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .panorama-camera-timeline {
+    grid-template-columns: 32px 32px 52px minmax(100px, 1fr);
+  }
+  .panorama-camera-timeline__duration,
+  .panorama-camera-timeline__fps,
+  .panorama-camera-timeline__loop {
+    display: none;
+  }
+}

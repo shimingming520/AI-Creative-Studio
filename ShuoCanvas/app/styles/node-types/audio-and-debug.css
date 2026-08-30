@@ -1,0 +1,285 @@
+﻿.audio-card {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: var(--white-05);
+  border: 1px solid var(--stroke-10);
+  border-radius: 18px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: var(--link-cursor);
+  pointer-events: auto;
+}
+.audio-card.is-multi-result-stack,
+.audio-card.is-multi-result-stack-expanded {
+  overflow: visible;
+}
+.audio-main-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: inherit;
+  background: 0 0;
+  pointer-events: none;
+}
+.audio-main-surface .audio-controls,
+.audio-main-surface .audio-player,
+.audio-main-surface .media-progress-bar {
+  pointer-events: auto;
+}
+.audio-multi-results-container {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  contain: layout;
+  overflow: visible;
+  pointer-events: none;
+}
+.audio-multi-results-container .multi-stack-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.audio-multi-results-container .multi-stack-backplates {
+  display: none;
+}
+.audio-multi-results-container
+  .multi-stack-wrap.is-expanded
+  .multi-stack-backplates {
+  display: block;
+}
+.audio-multi-results-container .multi-stack-backplate {
+  border: 1px solid var(--stroke-10);
+  border-radius: 18px;
+  background: var(--white-05);
+  box-shadow: none;
+}
+.audio-multi-results-container .multi-stack-backplate.is-expanded-card {
+  border-color: var(--stroke-10);
+  background: var(--white-05);
+  box-shadow: none;
+}
+.audio-multi-results-container .multi-stack-backplate-media {
+  background: 0 0;
+}
+.audio-multi-wave-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue);
+}
+.audio-multi-wave-preview svg {
+  width: 100%;
+  height: 100%;
+  opacity: 0.9;
+}
+.audio-multi-toggle-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--media-control-center-border);
+  border-radius: var(--radius-6);
+  background: var(--media-control-center-bg);
+  color: var(--media-control-button-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: var(--link-cursor);
+  user-select: none;
+  backdrop-filter: blur(4px);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+.audio-multi-toggle-btn.is-expanded {
+  border-color: transparent;
+  background: var(--media-clip-label-bg);
+  color: var(--media-control-button-text);
+}
+.audio-card .waveform {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  pointer-events: none;
+}
+.audio-card .waveform-bg svg {
+  opacity: 0.4;
+}
+.audio-card .waveform-unplayed {
+  clip-path: inset(0 0 0 0);
+}
+.audio-card .waveform-unplayed svg {
+  opacity: 0.9;
+}
+.audio-card .media-progress-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  transform: translateX(0);
+  will-change: transform;
+  background: var(--blue);
+  box-shadow: 0 0 8px var(--blue-60);
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+}
+.audio-card .media-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 48px;
+  z-index: 4;
+  cursor: var(--resize-ew-cursor);
+  background: 0 0;
+}
+.audio-playback-surface {
+  position: relative;
+  width: 100%;
+  height: 68px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--story-line);
+  border-radius: var(--radius-10);
+  background: var(--story-surface-subtle);
+}
+.audio-playback-surface .waveform svg {
+  width: 100%;
+  height: 100%;
+}
+.audio-playback-surface .audio-controls {
+  bottom: 8px;
+  left: 10px;
+  gap: 8px;
+}
+.audio-playback-surface .media-progress-bar {
+  height: 100%;
+}
+.audio-playback-surface .audio-play-btn {
+  width: 30px;
+  height: 30px;
+  background: var(--fill-hover-strong);
+}
+.audio-playback-surface .audio-play-btn:focus-visible,
+.audio-playback-surface .audio-play-btn:hover {
+  outline: 0;
+  background: var(--fill-active);
+}
+.audio-upload-hint {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+.audio-card .source-upload-btn {
+  background: var(--audio-upload-bg);
+  border-color: var(--audio-upload-border);
+  color: var(--audio-upload-text);
+}
+.audio-card .source-upload-btn:hover {
+  background: var(--audio-upload-hover-bg);
+  border-color: var(--audio-upload-hover-border);
+  color: var(--audio-upload-hover-text);
+}
+.audio-controls {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.audio-play-btn {
+  background: 0 0;
+  border: none;
+  border-radius: var(--radius-999);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--audio-control-button-text);
+  cursor: var(--link-cursor);
+  pointer-events: auto;
+  padding: 0;
+}
+.audio-play-btn svg {
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+}
+.audio-play-btn.is-playing .audio-playback-play-icon,
+.audio-playback-pause-icon {
+  display: none;
+}
+.audio-play-btn.is-playing .audio-playback-pause-icon {
+  display: block;
+  margin-left: 0;
+}
+.audio-time-wrap {
+  display: flex;
+  align-items: center;
+}
+.audio-time-display {
+  font-size: var(--font-12);
+  color: var(--audio-control-time-text);
+  font-variant-numeric: tabular-nums;
+}
+.audio-player {
+  display: none;
+}
+#v2-canvas .v2-node .v2-node-component .debug-output-content {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: var(--text-cursor);
+}
+.debug-output-content::-webkit-scrollbar {
+  width: 6px;
+}
+.debug-output-content::-webkit-scrollbar-track {
+  background: var(--black-20);
+  border-radius: 3px;
+}
+.debug-output-content::-webkit-scrollbar-thumb {
+  background: var(--gold-30);
+  border-radius: 3px;
+}
+.debug-output-content::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-30);
+}
+.video-node .rh-api-btn {
+  background: linear-gradient(135deg, var(--indigo), var(--purple));
+  box-shadow: 0 4px 15px var(--indigo-30);
+  margin-left: 8px;
+}
+.video-node .rh-api-btn:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 6px 20px var(--indigo-45);
+}
+.video-node .rh-api-btn:disabled {
+  opacity: 0.6;
+  cursor: var(--unavailable-cursor);
+}

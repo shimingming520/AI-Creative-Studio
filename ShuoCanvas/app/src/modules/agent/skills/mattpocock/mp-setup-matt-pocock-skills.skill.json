@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-setup-matt-pocock-skills",
+  "title": "Setup Matt Pocock Skills（技能配置）",
+  "riskLevel": "safe",
+  "category": "engineering",
+  "appliesWhen": [
+    "配置 skills",
+    "初始化 agent",
+    "issue tracker 配置",
+    "triage labels",
+    "domain docs",
+    "首次使用"
+  ],
+  "requiredInputs": [],
+  "missingInputQuestions": [],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": []
+}

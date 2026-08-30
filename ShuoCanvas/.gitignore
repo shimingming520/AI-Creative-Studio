@@ -1,0 +1,10 @@
+﻿.tools/
+.tmp-*/
+node_modules/
+app/node_modules/
+app/.electron-runtime/
+app/.electron-shell/
+app/.electron-dev-app/
+runtime/
+dist/
+*.log

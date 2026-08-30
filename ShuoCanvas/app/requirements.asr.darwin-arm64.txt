@@ -1,0 +1,5 @@
+﻿torch==2.11.0
+torchaudio==2.11.0
+modelscope>=1.17
+funasr>=1.1
+nemo_toolkit[asr]>=2.7

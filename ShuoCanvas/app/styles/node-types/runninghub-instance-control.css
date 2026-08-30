@@ -1,0 +1,12 @@
+﻿.ui-schema-instance-developer-control {
+  display: none;
+}
+.ui-schema-instance-toggle[data-ui-schema-developer-mode="true"]
+  > .ui-schema-instance-normal-control {
+  display: none;
+}
+.ui-schema-instance-developer-control > .ui-schema-pill-menu,
+.ui-schema-instance-toggle[data-ui-schema-developer-mode="true"]
+  > .ui-schema-instance-developer-control {
+  display: inline-flex;
+}

@@ -1,0 +1,18 @@
+﻿{
+  "release": "v0.7.9",
+  "releaseCommit": "1790265f3459a3f7a18da1ca518f1183c00fb312",
+  "installerPath": "F:\\Users\\shi\\Downloads\\SHUO-Canvas-windows-0.7.9.exe",
+  "installerLength": 294215036,
+  "installerSHA256": "A318C9C7036B35AD1E71A3C8AB8997CD3C39A2FF27FE4786E3524517D9E4DB72",
+  "installedExecutablePath": "D:\\Program_Files\\SHUO Canvas\\SHUO Canvas.exe",
+  "installedExecutableLength": 225549312,
+  "installedExecutableSHA256": "DA10DBC4423B39193C17199335E848AB91811FDA400C02803F598F562EBD01D1",
+  "installedProductVersion": "0.7.9.0",
+  "electron": "43.4.0",
+  "node": "24.18.1",
+  "chrome": "150.0.7871.224",
+  "recoveredAt": "2026-08-25T22:24:25.1217405+08:00",
+  "recoveredBuildPath": "F:\\PyCharm_Project\\ShuoCanvas\\dist\\win-unpacked\\SHUO Canvas Recovered.exe",
+  "recoveredBuildLength": 225549312,
+  "recoveredBuildSHA256": "DA10DBC4423B39193C17199335E848AB91811FDA400C02803F598F562EBD01D1"
+}

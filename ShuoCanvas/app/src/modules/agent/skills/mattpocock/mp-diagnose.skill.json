@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-diagnose",
+  "title": "Diagnose（诊断）",
+  "riskLevel": "confirm",
+  "category": "engineering",
+  "appliesWhen": [
+    "bug 诊断",
+    "调试问题",
+    "性能回退",
+    "错误排查",
+    "reproduce",
+    "minimise",
+    "hypothesise",
+    "instrument"
+  ],
+  "requiredInputs": [
+    "问题描述"
+  ],
+  "missingInputQuestions": [
+    "具体遇到了什么问题或错误？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": [
+    "graph.getCanvasSummary",
+    "node.getSummary",
+    "graph.getSelection"
+  ]
+}

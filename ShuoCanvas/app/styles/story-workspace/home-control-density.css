@@ -1,0 +1,16 @@
+﻿.story-home-model-bar .img-model-btn-trigger {
+  gap: 5px;
+  min-height: 28px;
+  max-width: min(340px, 55vw);
+  min-width: 0;
+  padding: 5px 7px;
+  font-size: 15px;
+}
+.story-ratio-option.is-disabled,
+.story-ratio-option:disabled {
+  border-color: var(--story-line);
+  background: var(--story-surface-subtle);
+  color: var(--story-text-muted);
+  cursor: var(--unavailable-cursor);
+  opacity: 0.45;
+}
