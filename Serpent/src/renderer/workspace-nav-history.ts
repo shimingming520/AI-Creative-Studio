@@ -1,3 +1,5 @@
+import type { GeneratedAssetKind } from "../shared/generated-assets";
+
 export type WorkspaceNavLocation =
   | { kind: "all" }
   | { kind: "root" }
@@ -5,7 +7,8 @@ export type WorkspaceNavLocation =
   | { kind: "tag"; tagId: string }
   | { kind: "collection"; collectionId: string; recursive: boolean }
   | { kind: "smart-collection"; collectionId: string }
-  | { kind: "trash"; tombstoneId: string | null };
+  | { kind: "trash"; tombstoneId: string | null }
+  | { kind: "generated"; mediaKind: GeneratedAssetKind };
 
 export type WorkspaceNavHistory = {
   current: WorkspaceNavLocation;
@@ -49,6 +52,11 @@ export function workspaceNavLocationsEqual(
       return (
         a.collectionId ===
         (b as Extract<WorkspaceNavLocation, { kind: "smart-collection" }>).collectionId
+      );
+    case "generated":
+      return (
+        a.mediaKind ===
+        (b as Extract<WorkspaceNavLocation, { kind: "generated" }>).mediaKind
       );
   }
 }

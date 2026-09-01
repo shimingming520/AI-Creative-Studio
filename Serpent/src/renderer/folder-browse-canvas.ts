@@ -52,7 +52,14 @@ export function shouldShowFolderBrowseCards(
   assetScope: string,
   folderRecursive: boolean,
 ): boolean {
-  return !(folderRecursive && assetScope !== "all" && assetScope !== "root");
+  // 生成资产 is always the flattened recursive view of the linked output
+  // folder, so folder cards never apply there.
+  return !(
+    folderRecursive &&
+    assetScope !== "all" &&
+    assetScope !== "root" &&
+    assetScope !== "generated"
+  );
 }
 
 /**
@@ -83,6 +90,7 @@ export function resolveFolderBrowseParentId(
   if (searchActive) return undefined;
   if (assetScope === "root") return null;
   if (assetScope === "all") return undefined;
+  if (assetScope === "generated") return undefined;
   const isManagedFolderScope = folders.some(
     (folder) => folder.folderId === assetScope,
   );

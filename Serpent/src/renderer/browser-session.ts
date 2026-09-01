@@ -3,6 +3,8 @@
  * Extracted from App.tsx for Serpent-uye — pure read/write/build helpers.
  */
 
+import type { GeneratedAssetKind } from "../shared/generated-assets";
+
 export type StoredBrowserSession = {
   version: 1;
   scope:
@@ -11,7 +13,8 @@ export type StoredBrowserSession = {
         kind: "folder" | "tag" | "collection" | "smart";
         id: string;
         name?: string;
-      };
+      }
+    | { kind: "generated"; mediaKind: GeneratedAssetKind };
   selectedAssetId: string;
   selectedAssetName: string;
 };
@@ -27,6 +30,7 @@ export type BrowseStateForSession = {
   activeTagName: string | undefined;
   activeCollectionId: string | null;
   activeSmartCollectionId: string | null;
+  activeGeneratedKind: GeneratedAssetKind | null;
   assetScope: "all" | "root" | string;
   selectedAssetId: string;
   selectedAssetName: string;
@@ -73,7 +77,17 @@ export function readBrowserSession(
         "tag",
         "collection",
         "smart",
+        "generated",
       ].includes(session.scope.kind)
+    ) {
+      return null;
+    }
+    if (
+      session.scope.kind === "generated" &&
+      !(
+        "mediaKind" in session.scope &&
+        typeof session.scope.mediaKind === "string"
+      )
     ) {
       return null;
     }
@@ -115,9 +129,11 @@ export function buildBrowserSessionFromBrowseState(
         ? { kind: "collection", id: state.activeCollectionId }
         : state.activeSmartCollectionId
           ? { kind: "smart", id: state.activeSmartCollectionId }
-          : state.assetScope === "all" || state.assetScope === "root"
-            ? { kind: state.assetScope }
-            : { kind: "folder", id: state.assetScope };
+          : state.assetScope === "generated" && state.activeGeneratedKind
+            ? { kind: "generated", mediaKind: state.activeGeneratedKind }
+            : state.assetScope === "all" || state.assetScope === "root"
+              ? { kind: state.assetScope }
+              : { kind: "folder", id: state.assetScope };
 
   return {
     version: 1,

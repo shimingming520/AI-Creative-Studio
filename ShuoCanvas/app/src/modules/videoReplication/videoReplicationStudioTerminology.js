@@ -1,1 +1,0 @@
-﻿export { VIDEO_REPLICATION_STUDIO_MODE_ID, VIDEO_REPLICATION_STUDIO_NAME } from "../workspaceStudioModes.js";

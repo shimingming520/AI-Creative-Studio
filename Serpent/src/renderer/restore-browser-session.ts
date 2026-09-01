@@ -16,6 +16,10 @@ import { BROWSE_SCOPE_SEARCH } from "./browse-scope-search";
 import { LibraryOperationError } from "./error-utils";
 import type { BeginBrowsePage } from "./use-browse-pagination";
 import {
+  generatedKindFilterClauses,
+  type GeneratedAssetKind,
+} from "../shared/generated-assets";
+import {
   BROWSE_PAGE_SIZE,
   registerBrowseSearchPage,
   registerBrowseSmartCollectionPage,
@@ -79,6 +83,9 @@ export type RestoreBrowserSessionDeps = {
   setTagFilter: (name: string) => void;
   setActiveCollectionId: (id: string | null) => void;
   setActiveSmartCollectionId: (id: string | null) => void;
+  /** 生成资产: linked-folder id backing the fixed section (null = unknown yet). */
+  generatedAssetsFolderId: string | null;
+  setActiveGeneratedKind: (kind: GeneratedAssetKind | null) => void;
   setAssets: (
     update: AssetSummary[] | ((current: AssetSummary[]) => AssetSummary[]),
   ) => void;
@@ -173,6 +180,8 @@ export async function applyStoredBrowserSession(
     setTagFilter,
     setActiveCollectionId,
     setActiveSmartCollectionId,
+    generatedAssetsFolderId,
+    setActiveGeneratedKind,
     setAssets,
     setTrashedAssets,
     setSearchTotal,
@@ -305,6 +314,54 @@ export async function applyStoredBrowserSession(
     restoredLocation = {
       kind: "smart-collection",
       collectionId: session.scope.id,
+    };
+  } else if (session.scope.kind === "generated") {
+    // 生成资产 restore: resolved via the linked folder whose root equals the
+    // generation output path. The host links it lazily after mount, so the
+    // folder may not exist yet at startup — fall back to all assets then (the
+    // fixed section appears as soon as the linked folder is indexed).
+    const folderId = generatedAssetsFolderId;
+    if (!folderId) throw new Error("generated-assets folder not ready yet");
+    const filters =
+      session.scope.mediaKind === "all"
+        ? undefined
+        : generatedKindFilterClauses(session.scope.mediaKind);
+    const scope: SearchScope = {
+      kind: "folder",
+      folderId,
+      recursive: true,
+    };
+    const result = await api.searchAssets({
+      libraryId: library.libraryId,
+      query: null,
+      filters,
+      scope,
+      // Serpent-87pd: first window only; scrollbar jumps fetch other offsets.
+      limit: BROWSE_PAGE_SIZE,
+      offset: 0,
+    });
+    if (!result.ok) throw new LibraryOperationError(result.error);
+    setAssetScope("generated");
+    setActiveGeneratedKind(session.scope.mediaKind);
+    setSearchTotal(result.value.total);
+    registerBrowseSearchPage(beginBrowsePage, {
+      libraryId: library.libraryId,
+      query: null,
+      filters: filters ?? null,
+      scope,
+      sort: null,
+      showIgnored: false,
+      target: "assets",
+      items: result.value.items,
+      total: result.value.total,
+      offset: result.value.offset,
+    });
+    restoredItems = result.value.items;
+    searchScope = scope;
+    searchFilters = filters;
+    restoredLocation = {
+      kind: "generated",
+      mediaKind: session.scope.mediaKind,
     };
   }
 

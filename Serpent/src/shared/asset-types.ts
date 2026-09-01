@@ -395,6 +395,14 @@ export const sortDefinitionSchema = z.strictObject({
 
 export type SortDefinition = z.infer<typeof sortDefinitionSchema>;
 
+/**
+ * Protocol bound on the number of values in one categorical filter clause.
+ * Requests exceeding it are rejected by Main/Worker validation, so producers
+ * must split a clause or use an expandable token (e.g. `text`) instead of
+ * enumerating the full extension registry in a single clause.
+ */
+export const MAX_CATEGORICAL_FILTER_VALUES = 32;
+
 const categoricalFilterClauseSchema = z.strictObject({
   field: z.enum([
     'format',
@@ -405,7 +413,7 @@ const categoricalFilterClauseSchema = z.strictObject({
     'availability',
     'color',
   ]),
-  values: z.array(boundedSearchValue).max(32),
+  values: z.array(boundedSearchValue).max(MAX_CATEGORICAL_FILTER_VALUES),
   exclude: z.boolean(),
 });
 

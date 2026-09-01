@@ -13174,7 +13174,7 @@ function friendlyError(error) {
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
     .replace(/^Error:\s*/i, "");
 }
-function ProviderSettings({ open, onClose, onChanged }) {
+function ProviderSettings({ open, onClose, onChanged, embedded = false }) {
   const [providers, setProviders] = reactExports.useState([]);
   const [apiKeys, setApiKeys] = reactExports.useState({});
   const [models, setModels] = reactExports.useState({});
@@ -13224,13 +13224,13 @@ function ProviderSettings({ open, onClose, onChanged }) {
       .catch((error) => setVectorizerError(friendlyError(error)));
   }, [open]);
   reactExports.useEffect(() => {
-    if (!open) return;
+    if (!open || embedded) return;
     const listener = (event) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, [open, onClose]);
+  }, [open, onClose, embedded]);
   function update(id, patch) {
     setProviders((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
@@ -13444,15 +13444,16 @@ function ProviderSettings({ open, onClose, onChanged }) {
   }
   if (!open) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-    className: "settings-backdrop",
+    className: embedded ? "app-settings-embedded" : "settings-backdrop",
     onMouseDown: (event) => {
       if (event.target === event.currentTarget) onClose();
     },
     children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-      className: "settings-modal",
+      className: embedded ? "app-settings-embedded-card" : "settings-modal",
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-          className: "settings-header",
+        !embedded &&
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "settings-header",
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
               children: [
@@ -14433,7 +14434,7 @@ function ImageViewer({ image, onClose }) {
     }),
   });
 }
-function SetupWizard({ open, required, initial, onClose, onComplete }) {
+function SetupWizard({ open, required, initial, onClose, onComplete, embedded = false, section = "workspace" }) {
   const [modelsDir, setModelsDir] = reactExports.useState("");
   const [outputDir, setOutputDir] = reactExports.useState("");
   const [comfyuiDir, setComfyuiDir] = reactExports.useState("");
@@ -14444,6 +14445,7 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
   const [saving, setSaving] = reactExports.useState(false);
   const [error, setError] = reactExports.useState("");
   const [driverVersion, setDriverVersion] = reactExports.useState();
+  const [savedNotice, setSavedNotice] = reactExports.useState(false);
   reactExports.useEffect(() => {
     if (!open || !initial) return;
     setModelsDir(initial.modelsDir);
@@ -14499,14 +14501,28 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
     }
   }
   async function complete() {
-    if (!modelsDir || !outputDir || !comfyuiDir.trim()) {
+    if (embedded) {
+      if (section === "workspace" && (!modelsDir || !outputDir)) {
+        setError("请选择模型文件夹和输出文件夹");
+        return;
+      }
+      if (section === "comfyui" && !comfyuiDir.trim()) {
+        setError("请填写外部 ComfyUI 根目录");
+        return;
+      }
+    } else if (!modelsDir || !outputDir || !comfyuiDir.trim()) {
       setError("请选择模型文件夹、输出文件夹和外部 ComfyUI 根目录");
       return;
     }
     setSaving(true);
     setError("");
+    setSavedNotice(false);
     try {
       const settings = await window.h3.workspace.save({ modelsDir, outputDir, comfyuiDir, remoteBackendUrl, useRemoteBackend });
+      if (embedded) {
+        setSavedNotice(true);
+        window.setTimeout(() => setSavedNotice(false), 2600);
+      }
       onComplete(settings);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -14516,12 +14532,13 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
   }
   if (!open) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-    className: "setup-backdrop",
+    className: embedded ? "app-settings-embedded" : "setup-backdrop",
     children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
-      className: "setup-modal",
+      className: embedded ? "app-settings-embedded-card" : "setup-modal",
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-          className: "setup-brand",
+        !embedded &&
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "setup-brand",
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
               className: "setup-mark",
@@ -14544,8 +14561,9 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
           className: "setup-content",
           children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-              className: "setup-heading",
+            !embedded &&
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "setup-heading",
               children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: required ? "首次使用设置" : "工作区设置" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("h1", {
@@ -14560,8 +14578,9 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
               className: "setup-paths",
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                  onClick: () => void pick("models"),
+                (!embedded || section === "workspace") &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                    onClick: () => void pick("models"),
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
                       className: "setup-path-icon",
@@ -14581,8 +14600,9 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                     /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 18 }),
                   ],
                 }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                  onClick: () => void pick("output"),
+                (!embedded || section === "workspace") &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                    onClick: () => void pick("output"),
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
                       className: "setup-path-icon",
@@ -14600,8 +14620,9 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                     /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 18 }),
                   ],
                 }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                  className: "setup-path-card setup-comfyui-path",
+                (!embedded || section === "comfyui") &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "setup-path-card setup-comfyui-path",
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
                       className: "setup-path-icon",
@@ -14640,10 +14661,11 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                 }),
               ],
             }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-              className: "setup-runtime",
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { size: 17 }),
+            (!embedded || section === "workspace") &&
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "setup-runtime",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { size: 17 }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "推理环境自动准备" }),
@@ -14655,7 +14677,8 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                 }),
               ],
             }),
-            needsDriverUpdate &&
+            (!embedded || section === "workspace") &&
+              needsDriverUpdate &&
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                 className: "setup-driver-warning",
                 children: [
@@ -14675,11 +14698,12 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                   }),
                 ],
               }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-              className: "setup-remote-section",
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                  className: "setup-remote-header",
+            (!embedded || section === "workspace") &&
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "setup-remote-section",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "setup-remote-header",
                   onClick: () => setUseRemoteBackend(!useRemoteBackend),
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx(Globe, { size: 17 }),
@@ -14757,14 +14781,19 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
               className: "setup-complete",
               onClick: () => void complete(),
-              disabled: saving || !modelsDir || !outputDir || !comfyuiDir.trim(),
+              disabled: saving || (embedded ? (section === "workspace" ? !modelsDir || !outputDir : !comfyuiDir.trim()) : !modelsDir || !outputDir || !comfyuiDir.trim()),
               children: [
                 saving
                   ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "spin", size: 19 })
                   : /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { size: 19 }),
-                saving ? "正在保存…" : "保存设置并进入YUH Studio",
+                saving ? "正在保存…" : embedded ? "保存设置" : "保存设置并进入YUH Studio",
               ],
             }),
+            savedNotice &&
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                className: "app-settings-saved-note",
+                children: "已保存，设置已生效；后台引擎将重新启动以应用新的目录",
+              }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
               className: "setup-footnote",
               children: "适用于 Windows 10/11、驱动较新的 NVIDIA 显卡。大型视频模型需要充足显存、内存与磁盘空间。",
@@ -83640,6 +83669,7 @@ ${prompt}`;
             const result = await window.h3.cloudImages.generate({
               providerId: provider.id,
               model,
+              taskType: referenceMedia.length ? "img2img" : "txt2img",
               prompt: [
                 finalImagePrompt,
                 node.style && node.style !== "自动" && node.style !== "无" ? `风格：${node.style}` : "",
@@ -83788,6 +83818,16 @@ ${prompt}`;
           const result = await window.h3.cloudVideos.generate({
             providerId: provider.id,
             model,
+            taskType:
+              canvasMode === "text"
+                ? "text"
+                : canvasMode === "reference"
+                  ? "reference"
+                  : canvasMode === "edit"
+                    ? "videoEdit"
+                    : canvasMode === "firstlast"
+                      ? "firstlast"
+                      : "img2video",
             prompt: videoPromptText,
             ratio: node.aspect || "16:9",
             duration: node.duration || 5,
@@ -83878,6 +83918,16 @@ ${prompt}`;
                     : canvasMode === "image" || canvasMode === "firstlast"
                       ? "image"
                       : "reference",
+                taskType:
+                  canvasMode === "text"
+                    ? "text"
+                    : canvasMode === "reference"
+                      ? "reference"
+                      : canvasMode === "edit"
+                        ? "videoEdit"
+                        : canvasMode === "firstlast"
+                          ? "firstlast"
+                          : "img2video",
                 prompt: h3PromptText,
                 width: videoWidth,
                 height: videoHeight,
@@ -93501,6 +93551,13 @@ const MODULES = [
     tone: "blue",
   },
   {
+    id: "audio",
+    title: "生成音频",
+    desc: "语音克隆、音色设计、音乐与音效、人声分离与转写",
+    icon: /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, {}),
+    tone: "rose",
+  },
+  {
     id: "cloud",
     title: "GPT / 香蕉出图",
     desc: "文生图与多图参考编辑，按模型切换",
@@ -93937,6 +93994,962 @@ function detectIosWebShell() {
   const ua2 = navigator.userAgent || "";
   return /iPad|iPhone|iPod/i.test(ua2) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
+/*
+ * 生成音频工作台：直接运行 ComfyUI 用户目录里「音频」分类下的工作流。
+ * 四个模式对应工作流子目录：
+ *   语音生成（克隆语音生成）→ 音频/语音生成
+ *   音色设计                  → 音频/音色设计
+ *   音乐生成                  → 音频/文生音乐
+ *   音效生成                  → 音频/文生音效（子目录为空时回退到根目录的音频工作流）
+ */
+const AUDIO_GENERATION_MODES = [
+  {
+    id: "voice",
+    title: "语音生成",
+    note: "克隆语音生成",
+    folder: "语音生成",
+    rootRe: /语音|tts|voxcpm|qwen3|voice|克隆/i,
+    icon: Mic,
+    hint: "上传参考音频克隆说话人音色，输入文本生成语音。",
+  },
+  {
+    id: "voiceDesign",
+    title: "音色设计",
+    note: "声音设计",
+    folder: "音色设计",
+    rootRe: /音色|voice.?design|声音设计/i,
+    icon: Palette,
+    hint: "用文字描述音色的性别、音域、语速与情绪，生成试听音频。",
+  },
+  {
+    id: "music",
+    title: "音乐生成",
+    note: "文生音乐",
+    folder: "文生音乐",
+    rootRe: /音乐|music/i,
+    icon: Music2,
+    hint: "输入音乐描述（曲风、速度、配器）与可选歌词，生成完整音乐。",
+  },
+  {
+    id: "sfx",
+    title: "音效生成",
+    note: "拟声音效",
+    folder: "文生音效",
+    rootRe: /音效|woosh|sound|sfx|拟声/i,
+    icon: Volume2,
+    hint: "输入拟声描述（如“壁炉劈啪声”），生成音效与带声音的视频。",
+  },
+  {
+    id: "vocalSplit",
+    title: "人声分离",
+    note: "伴奏与人声",
+    folder: "人声分离",
+    rootRe: /人声|分离|vocal|stem|伴奏/i,
+    icon: Scissors,
+    hint: "上传带人声的音频，分离出人声与伴奏 / 其他音轨（MelBandRoFormer · UVR5）。",
+  },
+  {
+    id: "asr",
+    title: "语音转文本",
+    note: "音频转字幕",
+    folder: "语音转文本",
+    rootRe: /转文本|转文字|ASR|字幕|transcri|语音识别/i,
+    icon: FileText,
+    hint: "上传音频或视频，提取字幕与转写文本（Qwen3-ASR）。",
+  },
+];
+function audioItemsForMode(items, mode) {
+  const list = Array.isArray(items) ? items : [];
+  const category = list.filter((item) => String(item.relName || "").split("/")[0] === "音频");
+  const sub = category.filter((item) => String(item.relName || "").split("/")[1] === mode.folder);
+  // 子目录里已有工作流时严格按文件夹展示（不再混入根目录同名文件）；
+  // 目录为空时才回退到根目录匹配（如 文生音效 → 开源音效大模型+Woosh）
+  if (sub.length) return sub;
+  const root = list.filter(
+    (item) =>
+      !String(item.relName || "").includes("/") &&
+      mode.rootRe.test(item.relName || "") &&
+      !/视频|数字人|FL2VA|小鲸鱼|生视频/i.test(item.relName || ""),
+  );
+  const combined = [...sub, ...root];
+  return combined.length ? combined : category;
+}
+function audioPathSetForLibrary(items) {
+  const set = /* @__PURE__ */ new Set();
+  const list = Array.isArray(items) ? items : [];
+  for (const item of list) {
+    const rel = String(item.relName || "");
+    if (rel.split("/")[0] === "音频") set.add(item.path);
+    else if (
+      !rel.includes("/") &&
+      AUDIO_GENERATION_MODES.some((mode) => mode.rootRe.test(rel) && !/视频|数字人|FL2VA|小鲸鱼|生视频/i.test(rel))
+    ) set.add(item.path);
+  }
+  return set;
+}
+function isAudioOutputPath(path) {
+  return /\.(mp3|wav|flac|m4a|aac|ogg|opus|mp4|webm|mov|mkv|png|jpe?g|webp)$/i.test(path);
+}
+function AudioOutputMedia({ path, url }) {
+  const [failed, setFailed] = reactExports.useState(false);
+  const isAudio = /\.(mp3|wav|flac|m4a|aac|ogg|opus)$/i.test(path);
+  const isVideo = /\.(mp4|webm|mov|mkv)$/i.test(path);
+  if ((isAudio || isVideo) && !failed) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx(isAudio ? "audio" : "video", {
+      controls: true,
+      src: url || makeMediaUrl(path),
+      onError: () => setFailed(true),
+    });
+  }
+  if ((isAudio || isVideo) && failed) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+      className: "audio-text-output",
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(FileAudio, { size: 18 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+          children: [path.split(/[\\/]/).pop(), "（无法播放，文件可能已被清理）"],
+        }),
+      ],
+    });
+  }
+  if (/\.(txt|srt|vtt|ass|json|md|csv)$/i.test(path)) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+      className: "audio-text-output",
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { size: 18 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+          children: path.split(/[\\/]/).pop(),
+        }),
+      ],
+    });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("img", { src: url || makeMediaUrl(path), alt: path.split(/[\\/]/).pop() });
+}
+function AudioGenerationStudio({ onOpenSettings }) {
+  const [audioMode, setAudioMode] = reactExports.useState("voice");
+  const [library, setLibrary] = reactExports.useState({ root: "", items: [] });
+  const [selectedPath, setSelectedPath] = reactExports.useState("");
+  const [info, setInfo] = reactExports.useState(null);
+  const [validation, setValidation] = reactExports.useState(null);
+  const [modelFiles, setModelFiles] = reactExports.useState({});
+  const [textValues, setTextValues] = reactExports.useState({});
+  const [duration, setDuration] = reactExports.useState(void 0);
+  const [steps, setSteps] = reactExports.useState(void 0);
+  const [cfg, setCfg] = reactExports.useState(void 0);
+  const [seed, setSeed] = reactExports.useState(void 0);
+  const [randomizeSeed, setRandomizeSeed] = reactExports.useState(true);
+  const [refs, setRefs] = reactExports.useState([]);
+  const [tasks, setTasks] = reactExports.useState([]);
+  const [backend, setBackend] = reactExports.useState(null);
+  const [busy, setBusy] = reactExports.useState(false);
+  const [submitting, setSubmitting] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState("");
+  const loadSeq = reactExports.useRef(0);
+  const mode =
+    AUDIO_GENERATION_MODES.find((item) => item.id === audioMode) || AUDIO_GENERATION_MODES[0];
+  const modeItems = reactExports.useMemo(() => audioItemsForMode(library.items, mode), [library.items, mode]);
+  const audioPaths = reactExports.useMemo(() => audioPathSetForLibrary(library.items), [library.items]);
+  const audioTasks = tasks.filter(
+    (task) =>
+      task.kind === "custom-workflow" &&
+      task.workflowPath &&
+      audioPaths.has(task.workflowPath),
+  );
+  const activeTask = audioTasks.find(
+    (task) => task.status === "queued" || task.status === "running",
+  );
+  const succeededTasks = audioTasks.filter((task) => task.status === "succeeded").slice(0, 12);
+  const ready = Boolean(backend && backend.state === "ready");
+
+  const loadLibrary = reactExports.useCallback(() => {
+    window.h3.workflows
+      .list()
+      .then((library2) =>
+        setLibrary({
+          root: library2.root || "",
+          items: Array.isArray(library2.items) ? library2.items : [],
+        }),
+      )
+      .catch(() => void 0);
+  }, []);
+  reactExports.useEffect(() => {
+    loadLibrary();
+    const timer = window.setInterval(loadLibrary, 3e4);
+    const onFocus = () => loadLibrary();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [loadLibrary]);
+  reactExports.useEffect(() => {
+    let alive = true;
+    window.h3.backend.status().then((status) => alive && setBackend(status)).catch(() => void 0);
+    const unsubscribeStatus = window.h3.backend.onStatus((status) => alive && setBackend(status));
+    window.h3.tasks
+      .list()
+      .then((items) => alive && setTasks(Array.isArray(items) ? items : []))
+      .catch(() => void 0);
+    const unsubscribeTask = window.h3.tasks.onUpdate((task) => {
+      setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)].slice(0, 120));
+    });
+    return () => {
+      alive = false;
+      unsubscribeStatus();
+      unsubscribeTask();
+    };
+  }, []);
+
+  const hydrate = reactExports.useCallback(
+    async (path) => {
+      if (!path) {
+        setInfo(null);
+        setValidation(null);
+        return;
+      }
+      const seq = ++loadSeq.current;
+      setBusy(true);
+      try {
+        const [nextInfo, check] = await Promise.all([
+          window.h3.workflows.inspect(path).catch(() => null),
+          window.h3.workflows.validate(path).catch(() => null),
+        ]);
+        if (seq !== loadSeq.current) return;
+        setInfo(nextInfo || null);
+        setValidation(check || null);
+        if (nextInfo) {
+          const text = {};
+          for (const slot of nextInfo.textSlots || []) {
+            text[`${slot.nodeId}::${slot.input}`] = slot.value ?? "";
+          }
+          setTextValues(text);
+          const values = nextInfo.slotValues || {};
+          setSteps(typeof values.steps === "number" ? values.steps : void 0);
+          setCfg(typeof values.cfg === "number" ? values.cfg : void 0);
+          setDuration(typeof values.duration === "number" ? values.duration : void 0);
+          if (typeof values.seed === "number") {
+            setSeed(values.seed);
+            setRandomizeSeed(false);
+          }
+          const models = {};
+          for (const slot of nextInfo.modelSlots || []) {
+            models[`${slot.nodeId}::${slot.input}`] = slot.value;
+          }
+          setModelFiles(models);
+          setRefs([]);
+        }
+      } finally {
+        if (seq === loadSeq.current) setBusy(false);
+      }
+    },
+    [],
+  );
+
+  reactExports.useEffect(() => {
+    if (!modeItems.length) {
+      if (selectedPath) setSelectedPath("");
+      return;
+    }
+    if (modeItems.some((item) => item.path === selectedPath)) return;
+    setSelectedPath(modeItems[0].path);
+  }, [modeItems, selectedPath]);
+  reactExports.useEffect(() => {
+    void hydrate(selectedPath);
+  }, [selectedPath, hydrate]);
+
+  const textSlots = info?.textSlots || [];
+  // 主输入框：优先选中第一个有默认文本的提示词类槽位（避免 Woosh 等图里
+  // 空白的 WooshSample.prompt 占据首位，把真正用于生成的 CR Text 挤到次位）
+  const primaryIndex = Math.max(
+    0,
+    textSlots.findIndex((slot) => String(slot.value ?? "").trim() !== ""),
+  );
+  const promptSlotKey = textSlots.length ? `${textSlots[primaryIndex].nodeId}::${textSlots[primaryIndex].input}` : "";
+  const fileSlotKinds = [...new Set((info?.fileSlots || []).map((slot) => slot.kind))];
+  const refsForKind = (kind) => refs.filter((ref) => ref.kind === kind);
+  const addRefs = async (kind) => {
+    const picked = await window.h3.files.pick(kind).catch(() => []);
+    setRefs((current) => {
+      const remain = current.filter((ref) => ref.kind !== kind);
+      return [...remain, ...(picked || []).slice(0, 3)];
+    });
+  };
+  // 拖放：把生成结果（或外部音频文件）拖入参考区，解析为参考素材
+  const addRefsFromPaths = async (paths, kind) => {
+    const resolved = await window.h3.files.resolve(paths).catch(() => []);
+    const files = (resolved || []).filter((file) => file.kind === kind);
+    if (!files.length) return;
+    setRefs((current) => {
+      const remain = current.filter((ref) => ref.kind !== kind);
+      return [...remain, ...files.slice(0, 3)];
+    });
+  };
+  const removeRef = (id) => setRefs((current) => current.filter((ref) => ref.id !== id));
+
+  const run = reactExports.useCallback(async () => {
+    if (!selectedPath || !info) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const task = await window.h3.workflows.run({
+        path: selectedPath,
+        taskType: mode.id,
+        prompt: typeof textValues[promptSlotKey] === "string" ? textValues[promptSlotKey] : void 0,
+        steps,
+        cfg,
+        seed,
+        randomizeSeed,
+        duration,
+        modelFiles,
+        textOverrides: textValues,
+        files: refs.map((ref) => ({ path: ref.path, kind: ref.kind })),
+      });
+      setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [selectedPath, info, textValues, promptSlotKey, steps, cfg, seed, randomizeSeed, duration, modelFiles, refs]);
+  const cancel = reactExports.useCallback(async () => {
+    if (!activeTask) return;
+    setBusy(true);
+    try {
+      await window.h3.workflows.cancel(activeTask.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }, [activeTask]);
+
+  const modelSlotMeta = (slot) =>
+    (validation?.modelSlots || []).find(
+      (item) => item.nodeId === slot.nodeId && item.input === slot.input,
+    );
+
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", {
+    className: "workspace local-generation-workspace audio-generation-workspace",
+    children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+        className: "panel references-panel",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "panel-heading",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                    className: "step-number",
+                    children: "01",
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "生成音频" }),
+                ],
+              }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                className: "limit-copy",
+                children: "本地 ComfyUI 工作流直连",
+              }),
+            ],
+          }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "video-mode-tabs audio-mode-tabs",
+            children: AUDIO_GENERATION_MODES.map((item) =>
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "button",
+                {
+                  className: audioMode === item.id ? "selected" : "",
+                  onClick: () => {
+                    setAudioMode(item.id);
+                    setError("");
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(item.icon, { size: 17 }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.title }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.note }),
+                      ],
+                    }),
+                  ],
+                },
+                item.id,
+              ),
+            ),
+          }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "h3-speed-card",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 16 }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "音频工作流" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                        children: `${mode.folder} · ${modeItems.length ? `${modeItems.length} 个` : "暂无工作流"}`,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "h3-model-picker-stack",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "setting-block",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "工作流" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(ModelPicker, {
+                        value: selectedPath,
+                        onChange: (path) => setSelectedPath(path),
+                        options: modeItems.map((item) => ({
+                          value: item.path,
+                          label: item.relName.split("/").pop(),
+                          hint: `${item.nodeCount ?? 0} 节点`,
+                        })),
+                        emptyText: "暂无可用音频工作流：请在 ComfyUI 网页保存到「音频」目录后刷新",
+                      }),
+                    ],
+                  }),
+                  mode?.hint &&
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", {
+                      className: "h3-model-picker-hint",
+                      style: { fontSize: "11px", marginTop: "6px" },
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(Info, { size: 13 }),
+                        mode.hint,
+                      ],
+                    }),
+                  (info?.modelSlots || []).map((slot) => {
+                    const key = `${slot.nodeId}::${slot.input}`;
+                    const meta = modelSlotMeta(slot);
+                    const options = meta?.candidates || [];
+                    const current = modelFiles[key] || slot.value;
+                    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      className: "h3-model-picker-hint",
+                      style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
+                          style: { fontSize: "11px", color: meta && !meta.found ? "#e3a271" : "#8fd7ab" },
+                          children: [
+                            `${slot.nodeTitle} · ${slot.input}`,
+                            meta && !meta.found ? "（引擎中未找到）" : "",
+                          ],
+                        }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", {
+                          value: current,
+                          style: {
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "10px",
+                            background: "#10161c",
+                            color: "#e6edf4",
+                            border: "1px solid #2a3844",
+                          },
+                          onChange: (event) =>
+                            setModelFiles((previous) => ({ ...previous, [key]: event.target.value })),
+                          children: [
+                            !options.includes(current) &&
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                value: current,
+                                children: current,
+                              }),
+                            options.map((name) =>
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                value: name,
+                                children: name.replace(/\\/g, "/").split("/").pop(),
+                              }),
+                            ),
+                          ],
+                        }),
+                      ],
+                    });
+                  }),
+                  (validation?.nodeIssues || []).map((issue, index) =>
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                      className: "h3-model-picker-hint",
+                      style: { color: "#e3a271", fontSize: "11px", margin: "4px 0" },
+                      children: issue.message,
+                    }),
+                  ),
+                ],
+              }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("p", {
+                className: "h3-model-picker-hint",
+                style: { fontSize: "10px", color: "var(--muted)", marginTop: "8px" },
+                children: [
+                  "提示：音频工作流使用 Qwen3-TTS / VoxCPM / Woosh 等自定义节点，需在软件设置里指向安装这些节点的 ComfyUI 实例。",
+                ],
+              }),
+            ],
+          }),
+          fileSlotKinds.map((kind) =>
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ReferenceSection, {
+              icon:
+                kind === "image"
+                  ? /* @__PURE__ */ jsxRuntimeExports.jsx(Image$1, { size: 17 })
+                  : kind === "video"
+                    ? /* @__PURE__ */ jsxRuntimeExports.jsx(FileVideo, { size: 17 })
+                    : /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 17 }),
+              title: kind === "image" ? "参考图片" : kind === "video" ? "参考视频" : "参考音频",
+              description:
+                kind === "audio" ? "克隆音色用的声音样本" : kind === "video" ? "动作 / 视频参考" : "画面参考",
+              kind,
+              files: refsForKind(kind),
+              count: 3,
+              onAdd: addRefs,
+              onAddFiles: (paths) => addRefsFromPaths(paths, kind),
+              onRemove: removeRef,
+            }),
+          ),
+          !fileSlotKinds.length &&
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", {
+              className: "h3-model-picker-hint",
+              style: { fontSize: "10px", color: "var(--muted)", marginTop: "4px" },
+              children: [/* @__PURE__ */ jsxRuntimeExports.jsx(Info, { size: 13 }), "该工作流不需要上传素材素材。"],
+            }),
+        ],
+      }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+        className: "creation-column",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "panel prompt-panel",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "panel-heading compact",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                        className: "step-number",
+                        children: "02",
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "音频内容" }),
+                    ],
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    className: "native-badge",
+                    children: [mode.title, " · ", mode.note],
+                  }),
+                ],
+              }),
+              !textSlots.length &&
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                  className: "fl2va-empty",
+                  style: { minHeight: "180px" },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 26 }),
+                    }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "该工作流没有可编辑的文本输入" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                      children:
+                        audioMode === "asr"
+                          ? "上传左侧参考音频，运行后输出转写文本与字幕文件。"
+                          : audioMode === "vocalSplit"
+                            ? "上传左侧参考音频，运行后在输出目录得到分离出的音轨（如人声 / 伴奏）。"
+                            : "参数会使用工作流里保存的默认值；可在 ComfyUI 网页里修改后重新保存。",
+                    }),
+                  ],
+                }),
+              textSlots.map((slot, index) => {
+                const key = `${slot.nodeId}::${slot.input}`;
+                const primary = index === primaryIndex;
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                  className: "audio-text-slot",
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
+                      children: [
+                        slot.label,
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                          title: `节点 ${slot.nodeId} · ${slot.nodeTitle} · ${slot.input}`,
+                          children: ` → ${slot.nodeTitle}`,
+                        }),
+                      ],
+                    }),
+                    primary
+                      ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
+                          className: "prompt-box",
+                          children: /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", {
+                            value: String(textValues[key] ?? ""),
+                            onChange: (event) =>
+                              setTextValues((previous) => ({ ...previous, [key]: event.target.value })),
+                            spellCheck: false,
+                          }),
+                        })
+                      : /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", {
+                          className: "audio-slot-textarea",
+                          value: String(textValues[key] ?? ""),
+                          onChange: (event) =>
+                            setTextValues((previous) => ({ ...previous, [key]: event.target.value })),
+                          spellCheck: false,
+                        }),
+                  ],
+                });
+              }),
+            ],
+          }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "panel settings-panel",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "panel-heading compact",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                        className: "step-number",
+                        children: "03",
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "参数设置" }),
+                    ],
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    className: "native-badge",
+                    children: [info ? `${info.nodeCount} 节点` : "读取中"],
+                  }),
+                ],
+              }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "settings-grid",
+                children: [
+                  !!info?.slots?.duration?.length &&
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      className: "setting-block",
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "时长（秒）" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("input", {
+                          className: "audio-number-input",
+                          type: "number",
+                          min: "1",
+                          value: typeof duration === "number" ? duration : "",
+                          onChange: (event) =>
+                            setDuration(event.target.value === "" ? void 0 : Number(event.target.value)),
+                        }),
+                      ],
+                    }),
+                  !!info?.slots?.steps?.length &&
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      className: "setting-block",
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "步数" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("input", {
+                          className: "audio-number-input",
+                          type: "number",
+                          min: "1",
+                          value: typeof steps === "number" ? steps : "",
+                          onChange: (event) =>
+                            setSteps(event.target.value === "" ? void 0 : Number(event.target.value)),
+                        }),
+                      ],
+                    }),
+                  !!info?.slots?.cfg?.length &&
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      className: "setting-block",
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "引导强度（CFG）" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("input", {
+                          className: "audio-number-input",
+                          type: "number",
+                          step: "0.1",
+                          min: "0",
+                          value: typeof cfg === "number" ? cfg : "",
+                          onChange: (event) =>
+                            setCfg(event.target.value === "" ? void 0 : Number(event.target.value)),
+                        }),
+                      ],
+                    }),
+                  !!info?.slots?.seed?.length &&
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      className: "setting-block span-2 seed-block",
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "随机种子" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                          className: "seed-row",
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("input", {
+                              type: "number",
+                              value: typeof seed === "number" ? seed : "",
+                              disabled: randomizeSeed,
+                              onChange: (event) =>
+                                setSeed(event.target.value === "" ? void 0 : Number(event.target.value)),
+                            }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                              className: randomizeSeed ? "selected" : "",
+                              onClick: () => setRandomizeSeed((current) => !current),
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsx(Dice5, { size: 16 }),
+                                "每次随机",
+                              ],
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
+                ],
+              }),
+              error &&
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("p", {
+                  className: "h3-model-picker-hint",
+                  style: { color: "#e3a271", fontSize: "11px", margin: "6px 0 0" },
+                  children: [/* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { size: 13 }), error],
+                }),
+              !ready &&
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("p", {
+                  className: "h3-model-picker-hint",
+                  style: { color: "#e3a271", fontSize: "11px", margin: "6px 0 0" },
+                  children: [
+                    "本地引擎未就绪，无法提交音频工作流。",
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                      className: "audio-inline-link",
+                      onClick: () =>
+                        window.h3.backend
+                          .start()
+                          .then((status) => setBackend(status))
+                          .catch((reason) =>
+                            setError(reason instanceof Error ? reason.message : String(reason)),
+                          ),
+                      children: "立即启动",
+                    }),
+                  ],
+                }),
+              activeTask
+                ? /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                    className: "generate-button stop-generation",
+                    disabled: busy,
+                    onClick: () => void cancel(),
+                    children: [
+                      busy
+                        ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, {
+                            className: "spin",
+                            size: 20,
+                          })
+                        : /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 20 }),
+                      "停止生成",
+                    ],
+                  })
+                : /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                    className: "generate-button",
+                    disabled: !selectedPath || !info || submitting || !ready,
+                    onClick: () => void run(),
+                    children: [
+                      submitting
+                        ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, {
+                            className: "spin",
+                            size: 20,
+                          })
+                        : /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 20 }),
+                      "运行音频工作流",
+                    ],
+                  }),
+            ],
+          }),
+        ],
+      }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+        className: "right-column",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "panel preview-panel",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "panel-heading compact",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                        className: "step-number",
+                        children: "04",
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "生成结果" }),
+                    ],
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("small", {
+                    children: [succeededTasks.length, " 个成功结果"],
+                  }),
+                ],
+              }),
+              activeTask &&
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                  className: "generation-card generating-card",
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "generating-state",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                        className: "progress-orbit",
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { size: 34 }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                            children: [activeTask.progress ?? 0, "%"],
+                          }),
+                        ],
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "音频生成中" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                        children: activeTask.workflowName || "正在处理工作流",
+                      }),
+                    ],
+                  }),
+                }),
+              !activeTask && !succeededTasks.length &&
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                  className: "history-empty",
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
+                      className: "preview-glyph",
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 34 }),
+                    }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "还没有生成结果" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                      children: "选择左侧工作流，填写音频内容后点击「运行音频工作流」。",
+                    }),
+                  ],
+                }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "audio-output-grid",
+                children: succeededTasks.map((task) => {
+                  const paths = task.outputPaths?.length
+                    ? task.outputPaths
+                    : task.outputPath
+                      ? [task.outputPath]
+                      : [];
+                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "audio-output-card",
+                    draggable: true,
+                    onDragStart: (event) => {
+                      const first = paths[0];
+                      if (!first) return;
+                      event.dataTransfer.setData("text/plain", first);
+                      event.dataTransfer.effectAllowed = "copy";
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", {
+                        children: task.workflowName || task.id.slice(0, 8),
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                        children: [
+                          new Date(task.createdAt).toLocaleString("zh-CN"),
+                          task.seed != null ? ` · 种子 ${task.seed}` : "",
+                        ],
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                        className: "audio-output-actions",
+                        children: [
+                          paths[0] &&
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                              className: "canvas-pick-btn",
+                              title: "打开文件位置",
+                              onClick: () => audioRevealOutput(paths[0]),
+                              children: /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 14 }),
+                            }),
+                          paths[0] &&
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                              className: "canvas-pick-btn",
+                              title: "下载结果",
+                              onClick: () => audioDownloadOutput(paths[0]),
+                              children: /* @__PURE__ */ jsxRuntimeExports.jsx(Download, { size: 14 }),
+                            }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                            className: "canvas-pick-btn remove-result-btn",
+                            title: "删除这条记录",
+                            onClick: () =>
+                              void window.h3.tasks
+                                .remove(task.id)
+                                .then(() =>
+                                  setTasks((current) =>
+                                    current.filter((item) => item.id !== task.id),
+                                  ),
+                                )
+                                .catch((reason) =>
+                                  setError(reason instanceof Error ? reason.message : String(reason)),
+                                ),
+                            children: /* @__PURE__ */ jsxRuntimeExports.jsx(Trash2, { size: 14 }),
+                          }),
+                        ],
+                      }),
+                      paths.map((path, index) =>
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(AudioOutputMedia, {
+                          path,
+                          url: index === 0 ? task.outputUrl : void 0,
+                        }),
+                      ),
+                      !paths.length &&
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                          className: "h3-model-picker-hint",
+                          style: { fontSize: "10px", color: "var(--muted)" },
+                          children: "任务已完成，但没有找到输出文件。",
+                        }),
+                    ],
+                  });
+                }),
+              }),
+            ],
+          }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+            className: "panel engine-panel",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: "engine-title",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(Cpu, { size: 18 }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "引擎状态" }),
+                    ],
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                    onClick: () =>
+                      window.h3.backend
+                        .status()
+                        .then((status) => setBackend(status))
+                        .catch(() => void 0),
+                    "aria-label": "刷新引擎状态",
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { size: 15 }),
+                  }),
+                ],
+              }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                className: `engine-summary ${backend?.state || "offline"}`,
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "status-dot" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", {
+                        children: backend?.message || "正在检查引擎状态…",
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                        children: backend?.gpu
+                          ? `${backend.gpu.name} · ${(backend.gpu.vramTotalMb / 1024).toFixed(0)}GB VRAM`
+                          : backend?.port
+                            ? `127.0.0.1:${backend.port}`
+                            : "本地 ComfyUI",
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+function audioRevealOutput(path) {
+  window.h3.shell.showItem(path).catch(() => void 0);
+}
+function audioDownloadOutput(path) {
+  const a = document.createElement("a");
+  a.href = makeMediaUrl(path);
+  a.download = path.split(/[\\/]/).pop() || "audio";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 function App() {
   const iosWebShell = reactExports.useMemo(detectIosWebShell, []);
   const [railOpen, setRailOpen] = reactExports.useState(() => {
@@ -94003,6 +95016,7 @@ function App() {
   }, [iosWebShell]);
   const [settingsOpen, setSettingsOpen] = reactExports.useState(false);
   const [appSettingsOpen, setAppSettingsOpen] = reactExports.useState(false);
+  const [appSettingsTab, setAppSettingsTab] = reactExports.useState("engine");
   const [settingsReturnTarget, setSettingsReturnTarget] = reactExports.useState(null);
   const [sharingOpen, setSharingOpen] = reactExports.useState(false);
   const [sharingStatus, setSharingStatus] = reactExports.useState();
@@ -94189,6 +95203,27 @@ function App() {
       return {};
     }
   });
+  const [customWorkflowPath, setCustomWorkflowPath] = reactExports.useState(() => {
+    try {
+      return localStorage.getItem("yunhui-video-custom-workflow") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [imageCustomWorkflowPath, setImageCustomWorkflowPath] = reactExports.useState(() => {
+    try {
+      return localStorage.getItem("yunhui-image-custom-workflow") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [workflowLibrary, setWorkflowLibrary] = reactExports.useState({ root: "", items: [] });
+  const [customWorkflowInfo, setCustomWorkflowInfo] = reactExports.useState(null);
+  const [customWorkflowModels, setCustomWorkflowModels] = reactExports.useState({});
+  const [customWorkflowValidation, setCustomWorkflowValidation] = reactExports.useState(null);
+  const [imageCustomWorkflowInfo, setImageCustomWorkflowInfo] = reactExports.useState(null);
+  const [imageCustomWorkflowModels, setImageCustomWorkflowModels] = reactExports.useState({});
+  const [imageCustomWorkflowValidation, setImageCustomWorkflowValidation] = reactExports.useState(null);
   const [seed, setSeed] = reactExports.useState(157368968253448);
   const [randomizeSeed, setRandomizeSeed] = reactExports.useState(true);
   const [refImageSize, setRefImageSize] = reactExports.useState("match");
@@ -94261,11 +95296,13 @@ function App() {
     return computeResolution(aspect, megapixels);
   }, [aspect, megapixels, refImageDims]);
   const activeTask = tasks.find(
-    (task) => (task.kind || "video") === mode && (task.status === "running" || task.status === "queued"),
+    (task) =>
+      (task.kind === "custom-workflow" || (task.kind || "video") === mode) &&
+      (task.status === "running" || task.status === "queued"),
   );
   const outputHistory = tasks.filter(
     (task) =>
-      (task.kind || "video") === mode &&
+      (task.kind === "custom-workflow" || (task.kind || "video") === mode) &&
       task.status === "succeeded" &&
       task.outputUrl &&
       (task.outputPath || task.outputPaths?.length) &&
@@ -94319,6 +95356,13 @@ function App() {
       })
       .catch(() => void 0);
   }, []);
+  reactExports.useEffect(() => {
+    if (!appSettingsOpen || appSettingsTab !== "sharing") return;
+    window.h3?.sharing
+      ?.status?.()
+      .then((s2) => s2 && setSharingStatus(s2))
+      .catch(() => void 0);
+  }, [appSettingsOpen, appSettingsTab]);
   reactExports.useEffect(() => {
     window.h3?.appLifecycle
       ?.getCloseBehavior?.()
@@ -94422,6 +95466,107 @@ function App() {
     } catch {}
   }, [videoModelOverrides]);
   reactExports.useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void window.h3.workflows
+        .list()
+        .then((library) => {
+          const next = { root: library.root || "", items: library.items || [] };
+          setWorkflowLibrary((current) =>
+            current.root === next.root && current.items.length === next.items.length ? current : next,
+          );
+        })
+        .catch(() => void 0);
+    };
+    load();
+    const timer = setInterval(load, 30000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, []);
+  const IMAGE_MODE_WORKFLOW_FOLDER = { txt2img: "文生图", img2img: "图生图", edit: "图编辑" };
+  function workflowItemsInCategory(items, category) {
+    const list = Array.isArray(items) ? items : [];
+    return list.filter((item) => item.relName && String(item.relName).split("/")[0] === category);
+  }
+  function workflowItemsInModeFolder(items, mode) {
+    const sub = IMAGE_MODE_WORKFLOW_FOLDER[mode] || "文生图";
+    const list = Array.isArray(items) ? items : [];
+    const matched = list.filter((item) => {
+      const parts = item.relName ? String(item.relName).split("/") : [];
+      return parts[0] === "图像" && parts[1] === sub;
+    });
+    // 模式子目录为空时回退到整个「图像」分类，避免已有未分类图像工作流失效
+    return matched.length ? matched : workflowItemsInCategory(list, "图像");
+  }
+  function hydrateCustomWorkflow(path2, isVideo) {
+    const setInfo = isVideo ? setCustomWorkflowInfo : setImageCustomWorkflowInfo;
+    const setModels = isVideo ? setCustomWorkflowModels : setImageCustomWorkflowModels;
+    const setValidation = isVideo ? setCustomWorkflowValidation : setImageCustomWorkflowValidation;
+    if (!path2) {
+      setInfo(null);
+      setModels({});
+      setValidation(null);
+      return;
+    }
+    Promise.all([
+      window.h3.workflows.inspect(path2).catch(() => null),
+      window.h3.workflows.validate(path2).catch(() => null),
+    ]).then(([info, validation]) => {
+      if (!info) return;
+      setInfo(info);
+      setValidation(validation);
+      const models = {};
+      for (const slot of info.modelSlots || []) {
+        models[`${slot.nodeId}::${slot.input}`] = slot.value;
+      }
+      setModels(models);
+      const values = info.slotValues || {};
+      if (typeof values.prompt === "string" && values.prompt) setPrompt(values.prompt);
+      if (typeof values.steps === "number") setVideoSteps(values.steps);
+      if (typeof values.seed === "number") {
+        setSeed(values.seed);
+        setRandomizeSeed(false);
+      }
+      if (typeof values.length === "number" && values.length > 0) {
+        setDuration(Math.max(1, Math.round(values.length / 24)));
+      }
+    });
+  }
+  reactExports.useEffect(() => {
+    try {
+      localStorage.setItem("yunhui-video-custom-workflow", customWorkflowPath);
+    } catch {}
+    hydrateCustomWorkflow(customWorkflowPath, true);
+  }, [customWorkflowPath]);
+  reactExports.useEffect(() => {
+    try {
+      localStorage.setItem("yunhui-image-custom-workflow", imageCustomWorkflowPath);
+    } catch {}
+    hydrateCustomWorkflow(imageCustomWorkflowPath, false);
+  }, [imageCustomWorkflowPath]);
+  // 工作流库载入后：若已选工作流不属于当前「图像」模式对应的分类目录，自动恢复内置默认
+  reactExports.useEffect(() => {
+    if (!workflowLibrary.root) return;
+    if (!imageCustomWorkflowPath) return;
+    if (!workflowItemsInModeFolder(workflowLibrary.items, imageMode).some((item) => item.path === imageCustomWorkflowPath)) {
+      setImageCustomWorkflowPath("");
+    }
+  }, [workflowLibrary, imageMode, imageCustomWorkflowPath]);
+  reactExports.useEffect(() => {
+    if (!workflowLibrary.root) return;
+    if (!customWorkflowPath) return;
+    if (!workflowItemsInCategory(workflowLibrary.items, "视频").some((item) => item.path === customWorkflowPath)) {
+      setCustomWorkflowPath("");
+    }
+  }, [workflowLibrary, customWorkflowPath]);
+  reactExports.useEffect(() => {
     try {
       localStorage.setItem("yunhui-h3-reference-model-family", h3ReferenceModelFamily);
     } catch {}
@@ -94512,6 +95657,27 @@ function App() {
       element.setSelectionRange(start + tag2.length, start + tag2.length);
     });
   }
+  async function runCustomWorkflowTask(path2, info, models, panelFiles, panelPrompt, panelWidth, panelHeight, panelSteps, panelSeed, panelRandomize, panelDuration, taskType) {
+    const raw = Math.max(5, Math.round((panelDuration || 5) * 24));
+    const isH3Workflow = (info?.nodeTypes || []).some((item) => /^MiniMaxH3/i.test(String(item)));
+    const length = isH3Workflow ? raw + ((5 - (raw % 17) + 17) % 17) : raw;
+    return window.h3.workflows.run({
+      path: path2,
+      taskType,
+      prompt: panelPrompt,
+      width: panelWidth,
+      height: panelHeight,
+      length: panelDuration != null ? length : void 0,
+      duration: panelDuration,
+      steps: panelSteps,
+      seed: panelSeed,
+      randomizeSeed: panelRandomize,
+      cfg: info?.slotValues?.cfg,
+      fps: info?.slotValues?.fps,
+      modelFiles: models,
+      files: panelFiles.map((item) => ({ path: item.path, kind: item.kind })),
+    });
+  }
   async function generate() {
     setError("");
     if (mode === "video" && videoMode === "reference" && !references.length) {
@@ -94537,8 +95703,38 @@ function App() {
     setSubmitting(true);
     try {
       const task =
-        mode === "video"
-          ? await window.h3.tasks.create({
+        mode === "video" && customWorkflowPath
+          ? await runCustomWorkflowTask(
+              customWorkflowPath,
+              customWorkflowInfo,
+              customWorkflowModels,
+              videoMode === "text" ? [] : references,
+              prompt,
+              width,
+              height,
+              videoSteps,
+              seed,
+              randomizeSeed,
+              duration,
+              videoMode,
+            )
+          : mode === "image" && imageCustomWorkflowPath
+            ? await runCustomWorkflowTask(
+                imageCustomWorkflowPath,
+                imageCustomWorkflowInfo,
+                imageCustomWorkflowModels,
+                imageMode === "txt2img" ? [] : imageReferences,
+                prompt,
+                width,
+                height,
+                void 0,
+                seed,
+                randomizeSeed,
+                void 0,
+                imageMode,
+              )
+            : mode === "video"
+              ? await window.h3.tasks.create({
               videoMode,
               prompt,
               width,
@@ -94707,7 +95903,7 @@ function App() {
     }
   }
   function navigate(next) {
-    if (next === "video" || next === "image" || next === "cloud" || next === "chat") switchMode(next);
+    if (next === "video" || next === "image" || next === "audio" || next === "cloud" || next === "chat") switchMode(next);
     else setView(next);
     if (iosWebShell) setRailOpen(false);
   }
@@ -94718,6 +95914,10 @@ function App() {
       setSettingsReturnTarget(null);
       setAppSettingsOpen(true);
     }
+    void window.h3.backend.restart().then(setStatus);
+  }
+  function completeEmbeddedWorkspaceSetup(settings) {
+    setWorkspaceSettings(settings);
     void window.h3.backend.restart().then(setStatus);
   }
   function closeSettingsChild(target) {
@@ -95026,6 +96226,15 @@ function App() {
                     ],
                   }),
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                    className: view === "audio" ? "active" : "",
+                    onClick: () => navigate("audio"),
+                    title: "生成音频",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(AudioLines, { size: 19 }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "生成音频" }),
+                    ],
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
                     className: view === "cloud" ? "active" : "",
                     onClick: () => navigate("cloud"),
                     title: "云端生图",
@@ -95295,7 +96504,11 @@ function App() {
                       ? /* @__PURE__ */ jsxRuntimeExports.jsx(VisionReverseStudio, {})
                       : view === "text-workbench"
                         ? /* @__PURE__ */ jsxRuntimeExports.jsx(TextWorkbench, {})
-                        : view === "motion"
+                        : view === "audio"
+                          ? /* @__PURE__ */ jsxRuntimeExports.jsx(AudioGenerationStudio, {
+                              onOpenSettings: () => setSettingsOpen(true),
+                            })
+                          : view === "motion"
                           ? /* @__PURE__ */ jsxRuntimeExports.jsx(MotionTool, {
                               onUsePrompt: (value) => {
                                 setPrompt(value);
@@ -95471,6 +96684,84 @@ function App() {
                                                             return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                               className: "h3-model-picker-stack",
                                                               children: [
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                                  className: "setting-block",
+                                                                  style: { minHeight: "auto", marginBottom: "8px" },
+                                                                  children: [
+                                                                    /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                      children: "工作流",
+                                                                    }),
+                                                                    /* @__PURE__ */ jsxRuntimeExports.jsx(ModelPicker, {
+                                                                      value: customWorkflowPath,
+                                                                      onChange: (path2) => setCustomWorkflowPath(path2),
+                                                                      options: [
+                                                                        { value: "", label: "内置（本应用默认）" },
+                                                                        ...workflowItemsInCategory(workflowLibrary.items, "视频").map((item2) => ({
+                                                                          value: item2.path,
+                                                                          label: item2.relName,
+                                                                          hint: `${item2.nodeCount ?? 0} 节点`,
+                                                                        })),
+                                                                      ],
+                                                                      emptyText: "暂无可用工作流：请在 ComfyUI 网页保存后再点刷新",
+                                                                    }),
+                                                                    customWorkflowInfo &&
+                                                                      (customWorkflowInfo.modelSlots || []).map((slot) => {
+                                                                        const key = `${slot.nodeId}::${slot.input}`;
+                                                                        const meta = (customWorkflowValidation?.modelSlots || []).find(
+                                                                          (item2) => item2.nodeId === slot.nodeId && item2.input === slot.input,
+                                                                        );
+                                                                        const optionsList = meta?.candidates || [];
+                                                                        const current = customWorkflowModels[key] || slot.value;
+                                                                        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                                          className: "h3-model-picker-hint",
+                                                                          style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+                                                                          children: [
+                                                                            /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                              style: { fontSize: "11px", color: meta && !meta.found ? "#e3a271" : "#8fd7ab" },
+                                                                              children: `${slot.nodeTitle} · ${slot.input}${meta && !meta.found ? "（引擎中未找到）" : ""}`,
+                                                                            }),
+                                                                            /* @__PURE__ */ jsxRuntimeExports.jsx("select", {
+                                                                              value: current,
+                                                                              style: {
+                                                                                width: "100%",
+                                                                                padding: "8px 10px",
+                                                                                borderRadius: "10px",
+                                                                                background: "#10161c",
+                                                                                color: "#e6edf4",
+                                                                                border: "1px solid #2a3844",
+                                                                              },
+                                                                              onChange: (event) =>
+                                                                                setCustomWorkflowModels((previous) => ({
+                                                                                  ...previous,
+                                                                                  [key]: event.target.value,
+                                                                                })),
+                                                                              children: [
+                                                                                !optionsList.includes(current) &&
+                                                                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                                                                    value: current,
+                                                                                    children: current,
+                                                                                  }),
+                                                                                optionsList.map((name) =>
+                                                                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                                                                    value: name,
+                                                                                    children: name.replace(/\\/g, "/").split("/").pop(),
+                                                                                  }),
+                                                                                ),
+                                                                              ],
+                                                                            }),
+                                                                          ],
+                                                                        });
+                                                                      }),
+                                                                    (customWorkflowValidation?.nodeIssues || []).map((issue, index) =>
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                                                                        key: index,
+                                                                        className: "h3-model-picker-hint",
+                                                                        style: { color: "#e3a271", fontSize: "11px", margin: "4px 0" },
+                                                                        children: issue.message,
+                                                                      }),
+                                                                    ),
+                                                                  ],
+                                                                }),
                                                                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                                   className: "setting-block",
                                                                   children: [
@@ -96005,6 +97296,68 @@ function App() {
                                                           ],
                                                         });
                                                       })(),
+                                                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                      className: "setting-block",
+                                                      style: { minHeight: "auto", marginBottom: "8px" },
+                                                      children: [
+                                                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                          children: "工作流",
+                                                        }),
+                                                        /* @__PURE__ */ jsxRuntimeExports.jsx(ModelPicker, {
+                                                          value: imageCustomWorkflowPath,
+                                                          onChange: (path2) => setImageCustomWorkflowPath(path2),
+                                                          options: [
+                                                            { value: "", label: "内置（本应用默认）" },
+                                                            ...workflowItemsInModeFolder(workflowLibrary.items, imageMode).map((item2) => ({
+                                                              value: item2.path,
+                                                              label: item2.relName,
+                                                              hint: `${item2.nodeCount ?? 0} 节点`,
+                                                            })),
+                                                          ],
+                                                          emptyText: "暂无可用工作流：请在 ComfyUI 网页保存到「图像/" + (IMAGE_MODE_WORKFLOW_FOLDER[imageMode] || "文生图") + "」目录后再点刷新",
+                                                        }),
+                                                        imageCustomWorkflowInfo &&
+                                                          (imageCustomWorkflowInfo.modelSlots || []).map((slot) => {
+                                                            const key = `${slot.nodeId}::${slot.input}`;
+                                                            const meta = (imageCustomWorkflowValidation?.modelSlots || []).find(
+                                                              (item2) => item2.nodeId === slot.nodeId && item2.input === slot.input,
+                                                            );
+                                                            const optionsList = meta?.candidates || [];
+                                                            const current = imageCustomWorkflowModels[key] || slot.value;
+                                                            return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                              className: "h3-model-picker-hint",
+                                                              style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+                                                              children: [
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                  style: { fontSize: "11px", color: meta && !meta.found ? "#e3a271" : "#8fd7ab" },
+                                                                  children: `${slot.nodeTitle} · ${slot.input}${meta && !meta.found ? "（引擎中未找到）" : ""}`,
+                                                                }),
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsx("select", {
+                                                                  value: current,
+                                                                  style: { width: "100%", padding: "8px 10px", borderRadius: "10px", background: "#10161c", color: "#e6edf4", border: "1px solid #2a3844" },
+                                                                  onChange: (event) =>
+                                                                    setImageCustomWorkflowModels((previous) => ({ ...previous, [key]: event.target.value })),
+                                                                  children: [
+                                                                    !optionsList.includes(current) &&
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: current, children: current }),
+                                                                    optionsList.map((name) =>
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: name, children: name.replace(/\\/g, "/").split("/").pop() }),
+                                                                    ),
+                                                                  ],
+                                                                }),
+                                                              ],
+                                                            });
+                                                          }),
+                                                        (imageCustomWorkflowValidation?.nodeIssues || []).map((issue, index) =>
+                                                          /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                                                            key: index,
+                                                            className: "h3-model-picker-hint",
+                                                            style: { color: "#e3a271", fontSize: "11px", margin: "4px 0" },
+                                                            children: issue.message,
+                                                          }),
+                                                        ),
+                                                      ],
+                                                    }),
                                                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                       ref: imageLoraPanelRef,
                                                       className: `canvas-model-picker${loraPanelOpen ? " open" : ""}`,
@@ -97501,12 +98854,45 @@ function App() {
                 ],
               }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                className: "modal-body",
+                className: "app-settings-layout",
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
-                    className: "app-settings-section",
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", {
+                    className: "app-settings-nav",
+                    "aria-label": "设置分类",
                     children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "GPU 与显存" }),
+                      ["engine", Cpu, "引擎与显存"],
+                      ["workspace", FolderOpen, "工作区与模型目录"],
+                      ["comfyui", PackageOpen, "外部 ComfyUI 目录"],
+                      ["provider", Layers, "模型中转站"],
+                      ["sharing", Share2, "局域网共享"],
+                      ["behavior", Gauge, "运行行为"],
+                      ["storage", HardDrive, "存储管理"],
+                      ["shortcuts", KeyRound, "快捷键"],
+                      ["about", Info, "关于与授权"],
+                    ].map(([id, icon, label]) =>
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                        "button",
+                        {
+                          type: "button",
+                          className: `app-settings-nav-button${appSettingsTab === id ? " active" : ""}`,
+                          onClick: () => setAppSettingsTab(id),
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(icon, { size: 16 }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label }),
+                          ],
+                        },
+                        id,
+                      ),
+                    ),
+                  }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                    className: "modal-body app-settings-content",
+                    children: [
+                      appSettingsTab === "engine" &&
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+                        className: "app-settings-section",
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "GPU 与显存" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
                         className: "vram-mode-list",
                         children: [
@@ -97603,81 +98989,211 @@ function App() {
                       }),
                     ],
                   }),
+                  appSettingsTab === "workspace" &&
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
                     className: "app-settings-section",
                     children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "软件与服务" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                        className: "app-settings-row",
-                        onClick: () => {
-                          setAppSettingsOpen(false);
-                          setSettingsReturnTarget("workspace");
-                          setWorkspaceOpen(true);
-                        },
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "工作区与模型目录" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(SetupWizard, {
+                        open: true,
+                        embedded: true,
+                        section: "workspace",
+                        initial: workspaceSettings,
+                        onClose: () => setAppSettingsOpen(false),
+                        onComplete: completeEmbeddedWorkspaceSetup,
+                      }),
+                    ],
+                  }),
+                  appSettingsTab === "comfyui" &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+                    className: "app-settings-section",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "外部 ComfyUI 安装目录" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(SetupWizard, {
+                        open: true,
+                        embedded: true,
+                        section: "comfyui",
+                        initial: workspaceSettings,
+                        onClose: () => setAppSettingsOpen(false),
+                        onComplete: completeEmbeddedWorkspaceSetup,
+                      }),
+                    ],
+                  }),
+                  appSettingsTab === "provider" &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+                    className: "app-settings-section",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "模型中转站" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(ProviderSettings, {
+                        open: true,
+                        embedded: true,
+                        onClose: () => setAppSettingsOpen(false),
+                      }),
+                    ],
+                  }),
+                  appSettingsTab === "sharing" &&
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
+                    className: "app-settings-section",
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { children: "局域网共享" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                        className: "app-settings-embedded",
                         children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(HardDrive, { size: 18 }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "工作区与模型目录" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: "模型和输出文件夹",
+                          sharingStatus?.active
+                            ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, {
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                    className: "sharing-status-active",
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "status-dot active" }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "共享已开启" }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsxs("small", {
+                                        children: [sharingStatus.clients, " 个客户端连接中"],
+                                      }),
+                                    ],
+                                  }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                    className: "sharing-urls",
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                        children: "局域网访问地址（其他电脑用浏览器打开）",
+                                      }),
+                                      sharingStatus.urls.map((url) =>
+                                        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                                          "div",
+                                          {
+                                            className: "sharing-url-row",
+                                            children: [
+                                              /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: url }),
+                                              /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                                                onClick: () => void copySharingUrl(url),
+                                                className: `copy-btn ${copyShared === url ? "copied" : ""}`,
+                                                children:
+                                                  copyShared === url
+                                                    ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { size: 14 })
+                                                    : "复制",
+                                              }),
+                                            ],
+                                          },
+                                          url,
+                                        ),
+                                      ),
+                                    ],
+                                  }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                                    className: "sharing-stop-btn",
+                                    disabled: sharingLoading,
+                                    onClick: () => {
+                                      setSharingLoading(true);
+                                      void window.h3?.sharing
+                                        ?.stop?.()
+                                        .then(() => {
+                                          setSharingStatus(void 0);
+                                          setSharingLoading(false);
+                                        })
+                                        .catch(() => setSharingLoading(false));
+                                    },
+                                    children: sharingLoading ? "正在停止…" : "停止共享",
+                                  }),
+                                ],
+                              })
+                            : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, {
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                                    className: "sharing-desc",
+                                    children:
+                                      "开启后，局域网内其他电脑可通过浏览器访问并使用YUH Studio，支持多人同时在同一画布协作编辑。",
+                                  }),
+                                  sharingError &&
+                                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
+                                      className: "sharing-error-msg",
+                                      children: sharingError,
+                                    }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                                    className: "sharing-start-btn",
+                                    disabled: sharingLoading,
+                                    onClick: () => {
+                                      setSharingLoading(true);
+                                      setSharingError("");
+                                      void window.h3?.sharing
+                                        ?.start?.(18080)
+                                        .then((s2) => {
+                                          setSharingStatus(s2);
+                                          setSharingLoading(false);
+                                        })
+                                        .catch((err) => {
+                                          setSharingError(err instanceof Error ? err.message : String(err));
+                                          setSharingLoading(false);
+                                        });
+                                    },
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx(Share2, { size: 16 }),
+                                      " ",
+                                      sharingLoading ? "正在开启…" : "开启局域网共享",
+                                    ],
+                                  }),
+                                ],
                               }),
-                            ],
-                          }),
-                        ],
-                      }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                        className: "app-settings-row",
-                        onClick: () => {
-                          setAppSettingsOpen(false);
-                          setSettingsReturnTarget("workspace");
-                          setWorkspaceOpen(true);
-                        },
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 18 }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                            className: "autostart-section",
                             children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "外部 ComfyUI 安装目录" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: workspaceSettings?.comfyuiDir || "未配置，示例：F:\\Comfy-Desktop",
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
+                                className: "autostart-section-title",
+                                children: "开机设置",
                               }),
-                            ],
-                          }),
-                        ],
-                      }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                        className: "app-settings-row",
-                        onClick: () => {
-                          setAppSettingsOpen(false);
-                          setSettingsReturnTarget("provider");
-                          setSettingsOpen(true);
-                        },
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(Layers, { size: 18 }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "模型中转站" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "云端模型与服务提供商" }),
-                            ],
-                          }),
-                        ],
-                      }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                        className: "app-settings-row",
-                        onClick: () => {
-                          setAppSettingsOpen(false);
-                          setSettingsReturnTarget("sharing");
-                          setSharingOpen(true);
-                        },
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(Share2, { size: 18 }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "局域网共享" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: sharingStatus?.active
-                                  ? `${sharingStatus.clients} 个客户端已连接`
-                                  : "共享画布与本地生成服务",
+                              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
+                                className: "autostart-toggle-row",
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                    className: "autostart-toggle-info",
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "开机自启动" }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                                        children: "系统开机后自动启动YUH Studio",
+                                      }),
+                                    ],
+                                  }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                                    type: "button",
+                                    className: `toggle-switch ${autoStartSettings.autoStart ? "on" : ""}`,
+                                    onClick: () => {
+                                      const next = {
+                                        ...autoStartSettings,
+                                        autoStart: !autoStartSettings.autoStart,
+                                      };
+                                      setAutoStartSettings(next);
+                                      window.h3?.autostart?.set?.(next).catch(() => void 0);
+                                    },
+                                    children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "toggle-thumb" }),
+                                  }),
+                                ],
+                              }),
+                              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
+                                className: "autostart-toggle-row",
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                    className: "autostart-toggle-info",
+                                    children: [
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "启动后自动开启共享" }),
+                                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                                        children: "软件启动后自动开启局域网共享",
+                                      }),
+                                    ],
+                                  }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                                    type: "button",
+                                    className: `toggle-switch ${autoStartSettings.autoShare ? "on" : ""}`,
+                                    onClick: () => {
+                                      const next = {
+                                        ...autoStartSettings,
+                                        autoShare: !autoStartSettings.autoShare,
+                                      };
+                                      setAutoStartSettings(next);
+                                      window.h3?.autostart?.set?.(next).catch(() => void 0);
+                                    },
+                                    children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "toggle-thumb" }),
+                                  }),
+                                ],
                               }),
                             ],
                           }),
@@ -97685,6 +99201,7 @@ function App() {
                       }),
                     ],
                   }),
+                  appSettingsTab === "behavior" &&
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
                     className: "app-settings-section",
                     children: [
@@ -97725,6 +99242,7 @@ function App() {
                       }),
                     ],
                   }),
+                  appSettingsTab === "storage" &&
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
                     className: "app-settings-section",
                     children: [
@@ -97910,6 +99428,7 @@ function App() {
                       }),
                     ],
                   }),
+                  appSettingsTab === "shortcuts" &&
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
                     className: "app-settings-section",
                     children: [
@@ -97937,6 +99456,7 @@ function App() {
                       }),
                     ],
                   }),
+                  appSettingsTab === "about" &&
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("section", {
                     className: "app-settings-section",
                     children: [
@@ -97948,6 +99468,8 @@ function App() {
                       }),
                     ],
                   }),
+                  ],
+                }),
                 ],
               }),
             ],
@@ -97957,197 +99479,6 @@ function App() {
         open: settingsOpen,
         onClose: () => closeSettingsChild("provider"),
       }),
-      sharingOpen &&
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-          className: "modal-backdrop",
-          onClick: () => closeSettingsChild("sharing"),
-          children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-            className: "modal-card sharing-modal",
-            onClick: (e3) => e3.stopPropagation(),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                className: "modal-header",
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                    className: "modal-title",
-                    children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(Share2, { size: 20 }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "局域网共享" }),
-                    ],
-                  }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
-                    className: "modal-close",
-                    onClick: () => closeSettingsChild("sharing"),
-                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 18 }),
-                  }),
-                ],
-              }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                className: "modal-body",
-                children: [
-                  sharingStatus?.active
-                    ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, {
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                            className: "sharing-status-active",
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "status-dot active" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "共享已开启" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsxs("small", {
-                                children: [sharingStatus.clients, " 个客户端连接中"],
-                              }),
-                            ],
-                          }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                            className: "sharing-urls",
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
-                                children: "局域网访问地址（其他电脑用浏览器打开）",
-                              }),
-                              sharingStatus.urls.map((url) =>
-                                /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                                  "div",
-                                  {
-                                    className: "sharing-url-row",
-                                    children: [
-                                      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: url }),
-                                      /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
-                                        onClick: () => void copySharingUrl(url),
-                                        className: `copy-btn ${copyShared === url ? "copied" : ""}`,
-                                        children:
-                                          copyShared === url
-                                            ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { size: 14 })
-                                            : "复制",
-                                      }),
-                                    ],
-                                  },
-                                  url,
-                                ),
-                              ),
-                            ],
-                          }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
-                            className: "sharing-stop-btn",
-                            disabled: sharingLoading,
-                            onClick: () => {
-                              setSharingLoading(true);
-                              void window.h3?.sharing
-                                ?.stop?.()
-                                .then(() => {
-                                  setSharingStatus(void 0);
-                                  setSharingLoading(false);
-                                })
-                                .catch(() => setSharingLoading(false));
-                            },
-                            children: sharingLoading ? "正在停止…" : "停止共享",
-                          }),
-                        ],
-                      })
-                    : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, {
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
-                            className: "sharing-desc",
-                            children:
-                              "开启后，局域网内其他电脑可通过浏览器访问并使用YUH Studio，支持多人同时在同一画布协作编辑。",
-                          }),
-                          sharingError &&
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-                              className: "sharing-error-msg",
-                              children: sharingError,
-                            }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
-                            className: "sharing-start-btn",
-                            disabled: sharingLoading,
-                            onClick: () => {
-                              setSharingLoading(true);
-                              setSharingError("");
-                              void window.h3?.sharing
-                                ?.start?.(18080)
-                                .then((s2) => {
-                                  setSharingStatus(s2);
-                                  setSharingLoading(false);
-                                })
-                                .catch((err) => {
-                                  setSharingError(err instanceof Error ? err.message : String(err));
-                                  setSharingLoading(false);
-                                });
-                            },
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(Share2, { size: 16 }),
-                              " ",
-                              sharingLoading ? "正在开启…" : "开启局域网共享",
-                            ],
-                          }),
-                        ],
-                      }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                    className: "autostart-section",
-                    children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-                        className: "autostart-section-title",
-                        children: "开机设置",
-                      }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
-                        className: "autostart-toggle-row",
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                            className: "autostart-toggle-info",
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "开机自启动" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: "系统开机后自动启动YUH Studio",
-                              }),
-                            ],
-                          }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
-                            type: "button",
-                            className: `toggle-switch ${autoStartSettings.autoStart ? "on" : ""}`,
-                            onClick: () => {
-                              const next = {
-                                ...autoStartSettings,
-                                autoStart: !autoStartSettings.autoStart,
-                              };
-                              setAutoStartSettings(next);
-                              window.h3?.autostart?.set?.(next).catch(() => void 0);
-                            },
-                            children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "toggle-thumb" }),
-                          }),
-                        ],
-                      }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", {
-                        className: "autostart-toggle-row",
-                        children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-                            className: "autostart-toggle-info",
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "启动后自动开启共享" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: "软件启动后自动开启局域网共享",
-                              }),
-                            ],
-                          }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
-                            type: "button",
-                            className: `toggle-switch ${autoStartSettings.autoShare ? "on" : ""}`,
-                            onClick: () => {
-                              const next = {
-                                ...autoStartSettings,
-                                autoShare: !autoStartSettings.autoShare,
-                              };
-                              setAutoStartSettings(next);
-                              window.h3?.autostart?.set?.(next).catch(() => void 0);
-                            },
-                            children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "toggle-thumb" }),
-                          }),
-                        ],
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-            ],
-          }),
-        }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(SetupWizard, {
         open: workspaceOpen,
         required: !workspaceSettings?.configured && !window.h3?.sharing?.isWebMode?.(),
@@ -98306,9 +99637,30 @@ function ResourceLine({ label, value, detail }) {
     ],
   });
 }
-function ReferenceSection({ icon, title, description, kind, files, count, onAdd, onRemove, onViewImage }) {
+function ReferenceSection({ icon, title, description, kind, files, count, onAdd, onRemove, onViewImage, onAddFiles }) {
+  const [dropActive, setDropActive] = reactExports.useState(false);
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropActive(false);
+    if (!onAddFiles) return;
+    const fromFiles = Array.from(event.dataTransfer?.files || [])
+      .map((file) => file.path || "")
+      .filter(Boolean);
+    const textPath = (event.dataTransfer?.getData("text/plain") || "").trim();
+    const paths = [...fromFiles, textPath].filter(Boolean);
+    if (paths.length) void onAddFiles(paths);
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
-    className: "reference-section",
+    className: `reference-section${onAddFiles ? " droppable" : ""}${dropActive ? " drop-active" : ""}`,
+    onDragOver: (event) => {
+      if (!onAddFiles) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setDropActive(true);
+    },
+    onDragLeave: () => setDropActive(false),
+    onDrop: handleDrop,
     children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
         className: "reference-title",
@@ -98330,7 +99682,10 @@ function ReferenceSection({ icon, title, description, kind, files, count, onAdd,
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "div",
               {
-                className: "reference-item",
+                className:
+                  kind === "audio"
+                    ? "reference-item audio-player-item"
+                    : "reference-item",
                 children: [
                   file.kind === "image"
                     ? /* @__PURE__ */ jsxRuntimeExports.jsx("img", {
@@ -98347,9 +99702,11 @@ function ReferenceSection({ icon, title, description, kind, files, count, onAdd,
                           title: "双击放大查看",
                           onDoubleClick: () => onViewImage?.(file),
                         })
-                      : /* @__PURE__ */ jsxRuntimeExports.jsx("div", {
-                          className: "audio-thumb",
-                          children: /* @__PURE__ */ jsxRuntimeExports.jsx(FileAudio, { size: 22 }),
+                      : /* @__PURE__ */ jsxRuntimeExports.jsx("audio", {
+                          controls: true,
+                          preload: "metadata",
+                          src: file.url,
+                          title: file.name,
                         }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
                     className: "reference-index",

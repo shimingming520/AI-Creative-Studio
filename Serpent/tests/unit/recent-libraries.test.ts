@@ -27,12 +27,18 @@ describe('recent libraries store (main)', () => {
   let storePath = '';
   let originalE2E: string | undefined;
   let originalRestoreRecent: string | undefined;
+  let originalHosted: string | undefined;
+  let originalRestoreStandalone: string | undefined;
 
   beforeEach(() => {
     originalE2E = process.env.SERPENT_E2E;
     originalRestoreRecent = process.env.SERPENT_E2E_RESTORE_RECENT;
+    originalHosted = process.env.SERPENT_HOSTED;
+    originalRestoreStandalone = process.env.SERPENT_RESTORE_RECENT;
     delete process.env.SERPENT_E2E;
     delete process.env.SERPENT_E2E_RESTORE_RECENT;
+    delete process.env.SERPENT_HOSTED;
+    delete process.env.SERPENT_RESTORE_RECENT;
     storeDirectory = mkdtempSync(path.join(tmpdir(), 'serpent-recent-store-'));
     storePath = path.join(storeDirectory, 'recent-library.json');
   });
@@ -44,6 +50,13 @@ describe('recent libraries store (main)', () => {
       delete process.env.SERPENT_E2E_RESTORE_RECENT;
     } else {
       process.env.SERPENT_E2E_RESTORE_RECENT = originalRestoreRecent;
+    }
+    if (originalHosted === undefined) delete process.env.SERPENT_HOSTED;
+    else process.env.SERPENT_HOSTED = originalHosted;
+    if (originalRestoreStandalone === undefined) {
+      delete process.env.SERPENT_RESTORE_RECENT;
+    } else {
+      process.env.SERPENT_RESTORE_RECENT = originalRestoreStandalone;
     }
     rmSync(storeDirectory, { force: true, recursive: true });
   });
@@ -188,13 +201,23 @@ describe('recent libraries store (main)', () => {
     expect(readActiveLibraryPath(storePath)).toBe('/libraries/a');
   });
 
-  it('keeps automatic recent-library opening opt-in to isolated restart tests', () => {
+  it('keeps automatic recent-library opening opt-in for standalone, on for hosted', () => {
     expect(recentLibraryAutoOpenEnabled()).toBe(false);
 
     process.env.SERPENT_E2E = '1';
     expect(recentLibraryAutoOpenEnabled()).toBe(false);
 
     process.env.SERPENT_E2E_RESTORE_RECENT = '1';
+    expect(recentLibraryAutoOpenEnabled()).toBe(true);
+
+    delete process.env.SERPENT_E2E_RESTORE_RECENT;
+    // Standalone explicit opt-in.
+    process.env.SERPENT_RESTORE_RECENT = '1';
+    expect(recentLibraryAutoOpenEnabled()).toBe(true);
+
+    delete process.env.SERPENT_RESTORE_RECENT;
+    // Hosted integration always restores so 资源管理 shows the last library.
+    process.env.SERPENT_HOSTED = '1';
     expect(recentLibraryAutoOpenEnabled()).toBe(true);
   });
 

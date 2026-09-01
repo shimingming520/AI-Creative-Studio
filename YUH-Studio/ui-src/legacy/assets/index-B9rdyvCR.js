@@ -13057,7 +13057,7 @@ function CloudImageStudio({ onOpenSettings, onViewImage }) {
                   className: "media-picker-header",
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "从软件加载" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                       className: "media-picker-count",
                       children: [items.length, " 项"],
                     }),
@@ -14436,6 +14436,7 @@ function ImageViewer({ image, onClose }) {
 function SetupWizard({ open, required, initial, onClose, onComplete }) {
   const [modelsDir, setModelsDir] = reactExports.useState("");
   const [outputDir, setOutputDir] = reactExports.useState("");
+  const [comfyuiDir, setComfyuiDir] = reactExports.useState("");
   const [remoteBackendUrl, setRemoteBackendUrl] = reactExports.useState("");
   const [useRemoteBackend, setUseRemoteBackend] = reactExports.useState(false);
   const [remoteChecking, setRemoteChecking] = reactExports.useState(false);
@@ -14447,6 +14448,7 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
     if (!open || !initial) return;
     setModelsDir(initial.modelsDir);
     setOutputDir(initial.outputDir);
+    setComfyuiDir(initial.comfyuiDir || "");
     setRemoteBackendUrl(initial.remoteBackendUrl || "");
     setUseRemoteBackend(Boolean(initial.useRemoteBackend));
     setError("");
@@ -14461,9 +14463,9 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
   const driverNumber = Number.parseInt((driverVersion || "").split(".")[0] || "", 10);
   const needsDriverUpdate = Boolean(driverVersion && Number.isFinite(driverNumber) && driverNumber < 580);
   async function pick(kind) {
-    const current = kind === "models" ? modelsDir : outputDir;
+    const current = kind === "models" ? modelsDir : kind === "comfyui" ? comfyuiDir : outputDir;
     const selected = await window.h3.workspace.pickDirectory(kind, current);
-    if (selected) kind === "models" ? setModelsDir(selected) : setOutputDir(selected);
+    if (selected) kind === "models" ? setModelsDir(selected) : kind === "comfyui" ? setComfyuiDir(selected) : setOutputDir(selected);
   }
   const [remoteError, setRemoteError] = reactExports.useState("");
   async function checkRemote() {
@@ -14497,14 +14499,14 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
     }
   }
   async function complete() {
-    if (!modelsDir || !outputDir) {
-      setError("请选择模型文件夹和输出文件夹");
+    if (!modelsDir || !outputDir || !comfyuiDir.trim()) {
+      setError("请选择模型文件夹、输出文件夹和外部 ComfyUI 根目录");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      const settings = await window.h3.workspace.save({ modelsDir, outputDir, remoteBackendUrl, useRemoteBackend });
+      const settings = await window.h3.workspace.save({ modelsDir, outputDir, comfyuiDir, remoteBackendUrl, useRemoteBackend });
       onComplete(settings);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -14547,11 +14549,11 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
               children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: required ? "首次使用设置" : "工作区设置" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("h1", {
-                  children: required ? "只需选择两个文件夹" : "模型与输出设置",
+                  children: required ? "配置模型、输出与外部 ComfyUI" : "模型、输出与 ComfyUI 路径设置",
                 }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
                   children:
-                    "YUH Studio 会记住设置、扫描本地模型，并把以后生成的图片和视频自动保存到指定位置。可在下方配置远程模型连接。",
+                    "YUH Studio 会记住模型、输出和外部 ComfyUI 根目录。这里填写 F:\\Comfy-Desktop 这类 ComfyUI 根目录，不是 F:\\Program\\_Files\\Comfy Desktop 程序安装目录。",
                 }),
               ],
             }),
@@ -14565,7 +14567,7 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                       className: "setup-path-icon",
                       children: /* @__PURE__ */ jsxRuntimeExports.jsx(HardDrive, { size: 21 }),
                     }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                       children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "01 · 本地模型文件夹" }),
                         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", {
@@ -14586,7 +14588,7 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                       className: "setup-path-icon",
                       children: /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 21 }),
                     }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                       children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "02 · 生成内容保存位置" }),
                         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", {
@@ -14596,6 +14598,44 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
                       ],
                     }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 18 }),
+                  ],
+                }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                  className: "setup-path-card setup-comfyui-path",
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", {
+                      className: "setup-path-icon",
+                      children: /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 21 }),
+                    }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "03 · 外部 ComfyUI 安装目录" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", {
+                          children: "填写或选择你的 ComfyUI 根目录",
+                        }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                          className: "remote-input-row",
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("input", {
+                              type: "text",
+                              value: comfyuiDir,
+                              onChange: (e3) => setComfyuiDir(e3.target.value),
+                              placeholder: "F:\\Comfy-Desktop",
+                            }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                              type: "button",
+                              className: "remote-check-btn",
+                              onClick: () => void pick("comfyui"),
+                              children: "浏览",
+                            }),
+                          ],
+                        }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("em", {
+                          children:
+                            "请填外部 ComfyUI 根目录，例如 F:\\Comfy-Desktop；不要填 F:\\Program\\_Files\\Comfy Desktop。",
+                        }),
+                      ],
+                    }),
                   ],
                 }),
               ],
@@ -14717,7 +14757,7 @@ function SetupWizard({ open, required, initial, onClose, onComplete }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
               className: "setup-complete",
               onClick: () => void complete(),
-              disabled: saving || !modelsDir || !outputDir,
+              disabled: saving || !modelsDir || !outputDir || !comfyuiDir.trim(),
               children: [
                 saving
                   ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "spin", size: 19 })
@@ -94149,6 +94189,27 @@ function App() {
       return {};
     }
   });
+  const [customWorkflowPath, setCustomWorkflowPath] = reactExports.useState(() => {
+    try {
+      return localStorage.getItem("yunhui-video-custom-workflow") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [imageCustomWorkflowPath, setImageCustomWorkflowPath] = reactExports.useState(() => {
+    try {
+      return localStorage.getItem("yunhui-image-custom-workflow") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [workflowLibrary, setWorkflowLibrary] = reactExports.useState({ root: "", items: [] });
+  const [customWorkflowInfo, setCustomWorkflowInfo] = reactExports.useState(null);
+  const [customWorkflowModels, setCustomWorkflowModels] = reactExports.useState({});
+  const [customWorkflowValidation, setCustomWorkflowValidation] = reactExports.useState(null);
+  const [imageCustomWorkflowInfo, setImageCustomWorkflowInfo] = reactExports.useState(null);
+  const [imageCustomWorkflowModels, setImageCustomWorkflowModels] = reactExports.useState({});
+  const [imageCustomWorkflowValidation, setImageCustomWorkflowValidation] = reactExports.useState(null);
   const [seed, setSeed] = reactExports.useState(157368968253448);
   const [randomizeSeed, setRandomizeSeed] = reactExports.useState(true);
   const [refImageSize, setRefImageSize] = reactExports.useState("match");
@@ -94221,11 +94282,13 @@ function App() {
     return computeResolution(aspect, megapixels);
   }, [aspect, megapixels, refImageDims]);
   const activeTask = tasks.find(
-    (task) => (task.kind || "video") === mode && (task.status === "running" || task.status === "queued"),
+    (task) =>
+      (task.kind === "custom-workflow" || (task.kind || "video") === mode) &&
+      (task.status === "running" || task.status === "queued"),
   );
   const outputHistory = tasks.filter(
     (task) =>
-      (task.kind || "video") === mode &&
+      (task.kind === "custom-workflow" || (task.kind || "video") === mode) &&
       task.status === "succeeded" &&
       task.outputUrl &&
       (task.outputPath || task.outputPaths?.length) &&
@@ -94382,6 +94445,107 @@ function App() {
     } catch {}
   }, [videoModelOverrides]);
   reactExports.useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void window.h3.workflows
+        .list()
+        .then((library) => {
+          const next = { root: library.root || "", items: library.items || [] };
+          setWorkflowLibrary((current) =>
+            current.root === next.root && current.items.length === next.items.length ? current : next,
+          );
+        })
+        .catch(() => void 0);
+    };
+    load();
+    const timer = setInterval(load, 30000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, []);
+  const IMAGE_MODE_WORKFLOW_FOLDER = { txt2img: "文生图", img2img: "图生图", edit: "图编辑" };
+  function workflowItemsInCategory(items, category) {
+    const list = Array.isArray(items) ? items : [];
+    return list.filter((item) => item.relName && String(item.relName).split("/")[0] === category);
+  }
+  function workflowItemsInModeFolder(items, mode) {
+    const sub = IMAGE_MODE_WORKFLOW_FOLDER[mode] || "文生图";
+    const list = Array.isArray(items) ? items : [];
+    const matched = list.filter((item) => {
+      const parts = item.relName ? String(item.relName).split("/") : [];
+      return parts[0] === "图像" && parts[1] === sub;
+    });
+    // 模式子目录为空时回退到整个「图像」分类，避免已有未分类图像工作流失效
+    return matched.length ? matched : workflowItemsInCategory(list, "图像");
+  }
+  function hydrateCustomWorkflow(path2, isVideo) {
+    const setInfo = isVideo ? setCustomWorkflowInfo : setImageCustomWorkflowInfo;
+    const setModels = isVideo ? setCustomWorkflowModels : setImageCustomWorkflowModels;
+    const setValidation = isVideo ? setCustomWorkflowValidation : setImageCustomWorkflowValidation;
+    if (!path2) {
+      setInfo(null);
+      setModels({});
+      setValidation(null);
+      return;
+    }
+    Promise.all([
+      window.h3.workflows.inspect(path2).catch(() => null),
+      window.h3.workflows.validate(path2).catch(() => null),
+    ]).then(([info, validation]) => {
+      if (!info) return;
+      setInfo(info);
+      setValidation(validation);
+      const models = {};
+      for (const slot of info.modelSlots || []) {
+        models[`${slot.nodeId}::${slot.input}`] = slot.value;
+      }
+      setModels(models);
+      const values = info.slotValues || {};
+      if (typeof values.prompt === "string" && values.prompt) setPrompt(values.prompt);
+      if (typeof values.steps === "number") setVideoSteps(values.steps);
+      if (typeof values.seed === "number") {
+        setSeed(values.seed);
+        setRandomizeSeed(false);
+      }
+      if (typeof values.length === "number" && values.length > 0) {
+        setDuration(Math.max(1, Math.round(values.length / 24)));
+      }
+    });
+  }
+  reactExports.useEffect(() => {
+    try {
+      localStorage.setItem("yunhui-video-custom-workflow", customWorkflowPath);
+    } catch {}
+    hydrateCustomWorkflow(customWorkflowPath, true);
+  }, [customWorkflowPath]);
+  reactExports.useEffect(() => {
+    try {
+      localStorage.setItem("yunhui-image-custom-workflow", imageCustomWorkflowPath);
+    } catch {}
+    hydrateCustomWorkflow(imageCustomWorkflowPath, false);
+  }, [imageCustomWorkflowPath]);
+  // 工作流库载入后：若已选工作流不属于当前「图像」模式对应的分类目录，自动恢复内置默认
+  reactExports.useEffect(() => {
+    if (!workflowLibrary.root) return;
+    if (!imageCustomWorkflowPath) return;
+    if (!workflowItemsInModeFolder(workflowLibrary.items, imageMode).some((item) => item.path === imageCustomWorkflowPath)) {
+      setImageCustomWorkflowPath("");
+    }
+  }, [workflowLibrary, imageMode, imageCustomWorkflowPath]);
+  reactExports.useEffect(() => {
+    if (!workflowLibrary.root) return;
+    if (!customWorkflowPath) return;
+    if (!workflowItemsInCategory(workflowLibrary.items, "视频").some((item) => item.path === customWorkflowPath)) {
+      setCustomWorkflowPath("");
+    }
+  }, [workflowLibrary, customWorkflowPath]);
+  reactExports.useEffect(() => {
     try {
       localStorage.setItem("yunhui-h3-reference-model-family", h3ReferenceModelFamily);
     } catch {}
@@ -94472,6 +94636,26 @@ function App() {
       element.setSelectionRange(start + tag2.length, start + tag2.length);
     });
   }
+  async function runCustomWorkflowTask(path2, info, models, panelFiles, panelPrompt, panelWidth, panelHeight, panelSteps, panelSeed, panelRandomize, panelDuration) {
+    const raw = Math.max(5, Math.round((panelDuration || 5) * 24));
+    const isH3Workflow = (info?.nodeTypes || []).some((item) => /^MiniMaxH3/i.test(String(item)));
+    const length = isH3Workflow ? raw + ((5 - (raw % 17) + 17) % 17) : raw;
+    return window.h3.workflows.run({
+      path: path2,
+      prompt: panelPrompt,
+      width: panelWidth,
+      height: panelHeight,
+      length: panelDuration != null ? length : void 0,
+      duration: panelDuration,
+      steps: panelSteps,
+      seed: panelSeed,
+      randomizeSeed: panelRandomize,
+      cfg: info?.slotValues?.cfg,
+      fps: info?.slotValues?.fps,
+      modelFiles: models,
+      files: panelFiles.map((item) => ({ path: item.path, kind: item.kind })),
+    });
+  }
   async function generate() {
     setError("");
     if (mode === "video" && videoMode === "reference" && !references.length) {
@@ -94497,8 +94681,36 @@ function App() {
     setSubmitting(true);
     try {
       const task =
-        mode === "video"
-          ? await window.h3.tasks.create({
+        mode === "video" && customWorkflowPath
+          ? await runCustomWorkflowTask(
+              customWorkflowPath,
+              customWorkflowInfo,
+              customWorkflowModels,
+              videoMode === "text" ? [] : references,
+              prompt,
+              width,
+              height,
+              videoSteps,
+              seed,
+              randomizeSeed,
+              duration,
+            )
+          : mode === "image" && imageCustomWorkflowPath
+            ? await runCustomWorkflowTask(
+                imageCustomWorkflowPath,
+                imageCustomWorkflowInfo,
+                imageCustomWorkflowModels,
+                imageMode === "txt2img" ? [] : imageReferences,
+                prompt,
+                width,
+                height,
+                void 0,
+                seed,
+                randomizeSeed,
+                void 0,
+              )
+            : mode === "video"
+              ? await window.h3.tasks.create({
               videoMode,
               prompt,
               width,
@@ -94918,7 +95130,7 @@ function App() {
                                   },
                                   children: [
                                     /* @__PURE__ */ jsxRuntimeExports.jsx(HardDrive, { size: 14 }),
-                                    "更改模型与输出文件夹",
+                                    "更改工作区与外部 ComfyUI",
                                   ],
                                 }),
                               ],
@@ -95431,6 +95643,84 @@ function App() {
                                                             return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                               className: "h3-model-picker-stack",
                                                               children: [
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                                  className: "setting-block",
+                                                                  style: { minHeight: "auto", marginBottom: "8px" },
+                                                                  children: [
+                                                                    /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                      children: "工作流",
+                                                                    }),
+                                                                    /* @__PURE__ */ jsxRuntimeExports.jsx(ModelPicker, {
+                                                                      value: customWorkflowPath,
+                                                                      onChange: (path2) => setCustomWorkflowPath(path2),
+                                                                      options: [
+                                                                        { value: "", label: "内置（本应用默认）" },
+                                                                        ...workflowItemsInCategory(workflowLibrary.items, "视频").map((item2) => ({
+                                                                          value: item2.path,
+                                                                          label: item2.relName,
+                                                                          hint: `${item2.nodeCount ?? 0} 节点`,
+                                                                        })),
+                                                                      ],
+                                                                      emptyText: "暂无可用工作流：请在 ComfyUI 网页保存后再点刷新",
+                                                                    }),
+                                                                    customWorkflowInfo &&
+                                                                      (customWorkflowInfo.modelSlots || []).map((slot) => {
+                                                                        const key = `${slot.nodeId}::${slot.input}`;
+                                                                        const meta = (customWorkflowValidation?.modelSlots || []).find(
+                                                                          (item2) => item2.nodeId === slot.nodeId && item2.input === slot.input,
+                                                                        );
+                                                                        const optionsList = meta?.candidates || [];
+                                                                        const current = customWorkflowModels[key] || slot.value;
+                                                                        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                                          className: "h3-model-picker-hint",
+                                                                          style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+                                                                          children: [
+                                                                            /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                              style: { fontSize: "11px", color: meta && !meta.found ? "#e3a271" : "#8fd7ab" },
+                                                                              children: `${slot.nodeTitle} · ${slot.input}${meta && !meta.found ? "（引擎中未找到）" : ""}`,
+                                                                            }),
+                                                                            /* @__PURE__ */ jsxRuntimeExports.jsx("select", {
+                                                                              value: current,
+                                                                              style: {
+                                                                                width: "100%",
+                                                                                padding: "8px 10px",
+                                                                                borderRadius: "10px",
+                                                                                background: "#10161c",
+                                                                                color: "#e6edf4",
+                                                                                border: "1px solid #2a3844",
+                                                                              },
+                                                                              onChange: (event) =>
+                                                                                setCustomWorkflowModels((previous) => ({
+                                                                                  ...previous,
+                                                                                  [key]: event.target.value,
+                                                                                })),
+                                                                              children: [
+                                                                                !optionsList.includes(current) &&
+                                                                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                                                                    value: current,
+                                                                                    children: current,
+                                                                                  }),
+                                                                                optionsList.map((name) =>
+                                                                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", {
+                                                                                    value: name,
+                                                                                    children: name.replace(/\\/g, "/").split("/").pop(),
+                                                                                  }),
+                                                                                ),
+                                                                              ],
+                                                                            }),
+                                                                          ],
+                                                                        });
+                                                                      }),
+                                                                    (customWorkflowValidation?.nodeIssues || []).map((issue, index) =>
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                                                                        key: index,
+                                                                        className: "h3-model-picker-hint",
+                                                                        style: { color: "#e3a271", fontSize: "11px", margin: "4px 0" },
+                                                                        children: issue.message,
+                                                                      }),
+                                                                    ),
+                                                                  ],
+                                                                }),
                                                                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                                   className: "setting-block",
                                                                   children: [
@@ -95965,6 +96255,68 @@ function App() {
                                                           ],
                                                         });
                                                       })(),
+                                                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                      className: "setting-block",
+                                                      style: { minHeight: "auto", marginBottom: "8px" },
+                                                      children: [
+                                                        /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                          children: "工作流",
+                                                        }),
+                                                        /* @__PURE__ */ jsxRuntimeExports.jsx(ModelPicker, {
+                                                          value: imageCustomWorkflowPath,
+                                                          onChange: (path2) => setImageCustomWorkflowPath(path2),
+                                                          options: [
+                                                            { value: "", label: "内置（本应用默认）" },
+                                                            ...workflowItemsInModeFolder(workflowLibrary.items, imageMode).map((item2) => ({
+                                                              value: item2.path,
+                                                              label: item2.relName,
+                                                              hint: `${item2.nodeCount ?? 0} 节点`,
+                                                            })),
+                                                          ],
+                                                          emptyText: "暂无可用工作流：请在 ComfyUI 网页保存到「图像/" + (IMAGE_MODE_WORKFLOW_FOLDER[imageMode] || "文生图") + "」目录后再点刷新",
+                                                        }),
+                                                        imageCustomWorkflowInfo &&
+                                                          (imageCustomWorkflowInfo.modelSlots || []).map((slot) => {
+                                                            const key = `${slot.nodeId}::${slot.input}`;
+                                                            const meta = (imageCustomWorkflowValidation?.modelSlots || []).find(
+                                                              (item2) => item2.nodeId === slot.nodeId && item2.input === slot.input,
+                                                            );
+                                                            const optionsList = meta?.candidates || [];
+                                                            const current = imageCustomWorkflowModels[key] || slot.value;
+                                                            return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
+                                                              className: "h3-model-picker-hint",
+                                                              style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px" },
+                                                              children: [
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsx("label", {
+                                                                  style: { fontSize: "11px", color: meta && !meta.found ? "#e3a271" : "#8fd7ab" },
+                                                                  children: `${slot.nodeTitle} · ${slot.input}${meta && !meta.found ? "（引擎中未找到）" : ""}`,
+                                                                }),
+                                                                /* @__PURE__ */ jsxRuntimeExports.jsx("select", {
+                                                                  value: current,
+                                                                  style: { width: "100%", padding: "8px 10px", borderRadius: "10px", background: "#10161c", color: "#e6edf4", border: "1px solid #2a3844" },
+                                                                  onChange: (event) =>
+                                                                    setImageCustomWorkflowModels((previous) => ({ ...previous, [key]: event.target.value })),
+                                                                  children: [
+                                                                    !optionsList.includes(current) &&
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: current, children: current }),
+                                                                    optionsList.map((name) =>
+                                                                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: name, children: name.replace(/\\/g, "/").split("/").pop() }),
+                                                                    ),
+                                                                  ],
+                                                                }),
+                                                              ],
+                                                            });
+                                                          }),
+                                                        (imageCustomWorkflowValidation?.nodeIssues || []).map((issue, index) =>
+                                                          /* @__PURE__ */ jsxRuntimeExports.jsx("p", {
+                                                            key: index,
+                                                            className: "h3-model-picker-hint",
+                                                            style: { color: "#e3a271", fontSize: "11px", margin: "4px 0" },
+                                                            children: issue.message,
+                                                          }),
+                                                        ),
+                                                      ],
+                                                    }),
                                                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
                                                       ref: imageLoraPanelRef,
                                                       className: `canvas-model-picker${loraPanelOpen ? " open" : ""}`,
@@ -97404,7 +97756,7 @@ function App() {
                                                   onClick: () => setWorkspaceOpen(true),
                                                   children: [
                                                     /* @__PURE__ */ jsxRuntimeExports.jsx(HardDrive, { size: 14 }),
-                                                    "更改模型与输出文件夹",
+                                      "更改工作区与外部 ComfyUI",
                                                   ],
                                                 }),
                                               ],
@@ -97488,12 +97840,13 @@ function App() {
                             {
                               className: (workspaceSettings?.vramMode || "auto") === value ? "selected" : "",
                               onClick: () => {
-                                const updated = {
-                                  modelsDir: workspaceSettings?.modelsDir || "",
-                                  outputDir: workspaceSettings?.outputDir || "",
-                                  configured: workspaceSettings?.configured ?? true,
-                                  remoteBackendUrl: workspaceSettings?.remoteBackendUrl || "",
-                                  useRemoteBackend: workspaceSettings?.useRemoteBackend || false,
+                                  const updated = {
+                                    modelsDir: workspaceSettings?.modelsDir || "",
+                                    outputDir: workspaceSettings?.outputDir || "",
+                                    comfyuiDir: workspaceSettings?.comfyuiDir || "",
+                                    configured: workspaceSettings?.configured ?? true,
+                                    remoteBackendUrl: workspaceSettings?.remoteBackendUrl || "",
+                                    useRemoteBackend: workspaceSettings?.useRemoteBackend || false,
                                   sageAttention: workspaceSettings?.sageAttention,
                                   vramMode: value,
                                 };
@@ -97542,6 +97895,7 @@ function App() {
                               const updated = {
                                 modelsDir: workspaceSettings?.modelsDir || "",
                                 outputDir: workspaceSettings?.outputDir || "",
+                                comfyuiDir: workspaceSettings?.comfyuiDir || "",
                                 configured: workspaceSettings?.configured ?? true,
                                 remoteBackendUrl: workspaceSettings?.remoteBackendUrl || "",
                                 useRemoteBackend: workspaceSettings?.useRemoteBackend || false,
@@ -97578,7 +97932,26 @@ function App() {
                             children: [
                               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "工作区与模型目录" }),
                               /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
-                                children: "模型、输出文件夹和本地引擎",
+                                children: "模型和输出文件夹",
+                              }),
+                            ],
+                          }),
+                        ],
+                      }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", {
+                        className: "app-settings-row",
+                        onClick: () => {
+                          setAppSettingsOpen(false);
+                          setSettingsReturnTarget("workspace");
+                          setWorkspaceOpen(true);
+                        },
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 18 }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", {
+                            children: [
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "外部 ComfyUI 安装目录" }),
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("small", {
+                                children: workspaceSettings?.comfyuiDir || "未配置，示例：F:\\Comfy-Desktop",
                               }),
                             ],
                           }),

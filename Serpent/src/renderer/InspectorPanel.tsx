@@ -55,6 +55,10 @@ import { splitFilenameForDisplay } from "./filename-display";
 import { PaneSurface } from "./ui/surfaces";
 import { isCorruptAsset } from "./availability-affordance";
 import {
+  generationTaskTypeLabel,
+  type GenerationRecord,
+} from "../shared/generation-record";
+import {
   buildRawImageMetadataRows,
   type RawMetadataField,
 } from "./raw-image-metadata-format";
@@ -165,6 +169,8 @@ export interface InspectorPanelProps {
   onCreateAndAssignTag?: (tagName: string) => void;
   // REQ-MENU-007 / REQ-SELECT-004: multi-select UE edit model (null = single-asset path).
   multiEdit?: InspectorMultiEditModel | null;
+  /** 生成记录: provenance of the selected single asset (prompt/workflow/…). */
+  generationRecord?: GenerationRecord | null;
   /** 点击色卡分段复制颜色后的反馈（toast 由 App 统一发）。copied=false 表示剪贴板写入失败。 */
   onPaletteColorCopy?: (color: string, copied: boolean) => void;
   /** 在系统浏览器中打开当前源链接（URL 有效性由主进程二次校验）。 */
@@ -178,8 +184,157 @@ export interface InspectorPanelProps {
   extractedMetadataRefreshKey?: number;
 }
 
-function InspectorHeroSinglePreview({
-  asset,
+function formatGenerationDuration(ms: number, unknown: string): string {
+  if (!Number.isFinite(ms) || ms < 0) return unknown;
+  if (ms < 1000) return `${Math.round(ms)} 毫秒`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+}
+
+/** 常见生成参数的显示名（未知 key 原样显示）。 */
+const GENERATION_PARAM_LABELS: Record<string, string> = {
+  width: "宽度",
+  height: "高度",
+  duration: "时长(秒)",
+  seed: "种子",
+  resolution: "分辨率",
+  videoMode: "视频模式",
+  steps: "步数",
+  cfg: "CFG",
+  sampler: "采样器",
+  fps: "帧率",
+  loras: "LoRA",
+  mode: "模式",
+  quality: "质量",
+  num_frames: "帧数",
+};
+
+function GenerationRecordSection({ record }: { record: GenerationRecord }) {
+  const { t } = useLocale();
+  const [copied, setCopied] = useState(false);
+  const params = record.params ?? {};
+  const paramEntries = Object.entries(params).filter(
+    (entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "",
+  );
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(record.prompt ?? "");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const displayParamValue = (value: string | number | boolean | null) => {
+    if (typeof value === "boolean") return value ? "是" : "否";
+    return String(value);
+  };
+  return (
+    <section className="inspector-section inspector-generation-section">
+      <div className="inspector-tags-header">
+        <span className="inspector-section-label">{t("generation.title")}</span>
+      </div>
+      {(() => {
+        const taskTypeLabel = generationTaskTypeLabel(record);
+        return taskTypeLabel ? (
+          <div className="inspector-generation-row">
+            <span className="inspector-generation-label">
+              {t("generation.taskType")}
+            </span>
+            <span className="inspector-generation-value">{taskTypeLabel}</span>
+          </div>
+        ) : null;
+      })()}
+      {record.prompt ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.prompt")}
+          </span>
+          <div className="inspector-generation-prompt">
+            <p>{record.prompt}</p>
+            <button
+              aria-label={t("generation.promptCopy")}
+              className="inspector-generation-copy"
+              onClick={() => void copyPrompt()}
+              title={copied ? t("generation.promptCopied") : t("generation.promptCopy")}
+              type="button"
+            >
+              <Icon name="copy" size={13} />
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {record.workflow ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.workflow")}
+          </span>
+          <span className="inspector-generation-value">{record.workflow}</span>
+        </div>
+      ) : null}
+      {record.model ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.model")}
+          </span>
+          <span className="inspector-generation-value">{record.model}</span>
+        </div>
+      ) : null}
+      {record.durationMs != null ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.duration")}
+          </span>
+          <span className="inspector-generation-value">
+            {formatGenerationDuration(record.durationMs, "—")}
+          </span>
+        </div>
+      ) : null}
+      {record.completedAt || record.createdAt ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.createdAt")}
+          </span>
+          <span className="inspector-generation-value">
+            {formatDateFull(record.completedAt || record.createdAt!, "—")}
+          </span>
+        </div>
+      ) : null}
+      {record.engine ? (
+        <div className="inspector-generation-row">
+          <span className="inspector-generation-label">
+            {t("generation.engine")}
+          </span>
+          <span className="inspector-generation-value">{record.engine}</span>
+        </div>
+      ) : null}
+      {paramEntries.length > 0 ? (
+        <>
+          <div className="inspector-generation-row">
+            <span className="inspector-generation-label">
+              {t("generation.params")}
+            </span>
+            <span className="inspector-generation-params">
+              {paramEntries.map(([key, value]) => (
+                <span className="inspector-generation-param" key={key}>
+                  <em>
+                    {GENERATION_PARAM_LABELS[key] ?? key}
+                  </em>
+                  <span>{displayParamValue(value)}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function InspectorHeroSinglePreview({  asset,
   library,
   livePreview,
   api,
@@ -580,6 +735,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
     onRemoveTagFromAsset,
     onCreateAndAssignTag,
     multiEdit = null,
+    generationRecord = null,
     onPaletteColorCopy,
     onOpenSourceUrl,
     onRelink,
@@ -1264,6 +1420,11 @@ export function InspectorPanel(props: InspectorPanelProps) {
             pluginApi={pluginApi}
             refreshKey={pluginContributionRefreshKey}
           />
+
+          {/* --- 生成记录 (generation provenance) --- */}
+          {generationRecord ? (
+            <GenerationRecordSection record={generationRecord} />
+          ) : null}
 
           {/* --- Asset metadata editor (compact) --- */}
           {displayMetadata || isMultiEdit ? (

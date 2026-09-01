@@ -5,6 +5,7 @@ import {
   expandFormatFilterTokens,
   FORMAT_TEXT_TOKEN,
   isTextFileName,
+  normalizeFormatFilterTokens,
   textCardPreviewSnippet,
   textMimeForExtension,
 } from "../../src/shared/text-media";
@@ -49,4 +50,18 @@ test("expandFormatFilterTokens expands the unified text token", () => {
   expect(expanded).toContain("png");
   expect(expanded).not.toContain("text");
   expect(expandFormatFilterTokens(["PNG", ".JPG"])).toEqual(["png", "jpg"]);
+});
+
+test("normalizeFormatFilterTokens keeps the text token unexpanded", () => {
+  const normalized = normalizeFormatFilterTokens([
+    FORMAT_TEXT_TOKEN,
+    ".PNG",
+    "jpg",
+    " text ",
+  ]);
+  expect(normalized).toEqual(["text", "png", "jpg"]);
+  // Normalizing must not enumerate TEXT_EXTENSIONS (the Worker expands the
+  // token at query build time; renderer-side expansion would exceed the
+  // categorical filter clause value cap).
+  expect(normalized).not.toContain("txt");
 });

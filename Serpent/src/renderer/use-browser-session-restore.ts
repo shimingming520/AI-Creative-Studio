@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import type { AssetSummary } from "../shared/asset-types";
+import type { GeneratedAssetKind } from "../shared/generated-assets";
 import type { SerpentLibraryApi } from "../shared/library-api";
 import type { RendererLibrarySummary } from "../shared/protocol/responses";
 import {
@@ -50,6 +51,9 @@ export type UseBrowserSessionRestoreArgs = {
   setTagFilter: Dispatch<SetStateAction<string>>;
   setActiveCollectionId: Dispatch<SetStateAction<string | null>>;
   setActiveSmartCollectionId: Dispatch<SetStateAction<string | null>>;
+  /** 生成资产: linked-folder id for the configured generation output. */
+  generatedAssetsFolderId: string | null;
+  setActiveGeneratedKind: Dispatch<SetStateAction<GeneratedAssetKind | null>>;
   setAssets: Dispatch<SetStateAction<AssetSummary[]>>;
   setSearchTotal: Dispatch<SetStateAction<number | null>>;
   /** Serpent-ws4k: register the restored scope for paginated appends. */
@@ -107,6 +111,8 @@ export function useBrowserSessionRestore(
     setTagFilter,
     setActiveCollectionId,
     setActiveSmartCollectionId,
+    generatedAssetsFolderId,
+    setActiveGeneratedKind,
     setAssets,
     setSearchTotal,
     beginBrowsePage,
@@ -169,6 +175,8 @@ export function useBrowserSessionRestore(
               setTagFilter,
               setActiveCollectionId,
               setActiveSmartCollectionId,
+              generatedAssetsFolderId,
+              setActiveGeneratedKind,
               setAssets,
               setTrashedAssets,
               setSearchTotal,
@@ -228,6 +236,7 @@ export function useBrowserSessionRestore(
     pendingRestoredFocusRef,
     setActiveCollectionId,
     setActiveSmartCollectionId,
+    setActiveGeneratedKind,
     setActiveTagId,
     setAssetScope,
     setAssetSelectionAnchor,
@@ -268,6 +277,7 @@ export type UseBrowserSessionPersistArgs = {
   tags: readonly { tagId: string; name: string }[];
   activeCollectionId: string | null;
   activeSmartCollectionId: string | null;
+  activeGeneratedKind: GeneratedAssetKind | null;
   assetScope: "all" | "root" | string;
 };
 
@@ -283,6 +293,7 @@ export function useBrowserSessionPersist(
     tags,
     activeCollectionId,
     activeSmartCollectionId,
+    activeGeneratedKind,
     assetScope,
   } = args;
 
@@ -294,6 +305,7 @@ export function useBrowserSessionPersist(
       activeTagName: tags.find((tag) => tag.tagId === activeTagId)?.name,
       activeCollectionId,
       activeSmartCollectionId,
+      activeGeneratedKind,
       assetScope,
       // Persist scope even with an empty selection so relaunch restores the
       // last folder/collection instead of falling back to "all assets".
@@ -304,6 +316,7 @@ export function useBrowserSessionPersist(
   }, [
     activeCollectionId,
     activeSmartCollectionId,
+    activeGeneratedKind,
     browserSessionReady,
     activeTagId,
     assetScope,

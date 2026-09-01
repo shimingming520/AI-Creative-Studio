@@ -59,7 +59,11 @@ export type IconName =
   | "copy"
   | "trash"
   | "upload"
-  | "warning";
+  | "warning"
+  | "sparkles"
+  | "image"
+  | "video"
+  | "music";
 
 const iconPaths: Record<IconName, ReactNode> = {
   activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
@@ -421,6 +425,33 @@ const iconPaths: Record<IconName, ReactNode> = {
     <>
       <path d="M12 3 2.8 20h18.4z" />
       <path d="M12 9v5m0 3h.01" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+      <path d="M19 3.5v3M17.5 5h3" />
+      <path d="M5 17.5v3M3.5 19h3" />
+    </>
+  ),
+  image: (
+    <>
+      <rect height="16" rx="2" width="18" x="3" y="4" />
+      <circle cx="8.8" cy="9.5" r="1.6" />
+      <path d="m21 15-3.4-3.4a2 2 0 0 0-2.8 0L6 20.4" />
+    </>
+  ),
+  video: (
+    <>
+      <path d="m22 8.5-6 3.8 6 3.8z" />
+      <rect height="12" rx="2" width="14" x="2" y="6" />
+    </>
+  ),
+  music: (
+    <>
+      <path d="M9 18V6l11-2v12" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="17" cy="16" r="3" />
     </>
   ),
 };

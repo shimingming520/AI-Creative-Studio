@@ -182,6 +182,8 @@ export const en = {
     tagScope: "Tag · {name}",
     collectionScope: "Collection · {name}",
     smartCollectionScope: "Smart collection · {name}",
+    generatedAssets: "Generated assets",
+    generatedKind: "Generated assets · {kind}",
     tagFilter: "Tag filter",
     tagNamed: "Tag: {name}",
     collectionView: "Collection view",
@@ -197,6 +199,8 @@ export const en = {
     addFolder: "Add folder",
     addSection: "Add {title}",
     secondaryAction: "Secondary action {title}",
+    exportSection: "Export {title}",
+    exportGenerationRecords: "Export generation records (JSON/CSV)",
     includeChildCollections: "Include subcollections",
     childCollectionCount: "{count} subcollections",
     includeChildFolders: "Include subfolders",
@@ -224,7 +228,18 @@ export const en = {
     linkedFolderHint: "Right-click to edit rules; Shift+right-click to convert to managed. Drop selected managed assets here.",
     importLinkedFolder: "Import linked folder",
     newFolder: "New folder",
-    tagManagement: "Tag management"
+    tagManagement: "Tag management",
+    generatedAssets: "Generated assets",
+    generatedAll: "All generated",
+    generatedImage: "Images",
+    generatedVideo: "Videos",
+    generatedAudio: "Audio",
+    generatedModel: "3D models",
+    generatedDocument: "Documents",
+    generatedOther: "Other",
+    generatedLinkedHint:
+      "The generation output directory is not linked to the library yet; it will be indexed automatically the first time asset management opens.",
+    generatedOpenLibraryHint: "Open a library to see generated assets"
   },
   tagMgmt: {
     title: "Tag management",
@@ -1654,9 +1669,26 @@ export const en = {
     smartCollectionTitle: "No assets match this smart collection",
     smartCollectionBody:
       "Smart collections show assets that match a saved query. Import from the library menu goes to the library, not into this query.",
+    generatedTitle: "No generated assets yet",
+    generatedBody:
+      "Images, videos, and audio generated in the app are collected here by type automatically.",
     noLibraryTitle: "Start with a local library",
     noLibraryBody: "Files, folders, and metadata stay where you control them.",
     recentLibraries: "Recent libraries"
+  },
+  generation: {
+    title: "Generation details",
+    taskType: "Task type",
+    prompt: "Prompt",
+    promptCopy: "Copy prompt",
+    promptCopied: "Copied",
+    workflow: "Workflow",
+    model: "Model",
+    duration: "Generation time",
+    createdAt: "Created at",
+    engine: "Engine",
+    params: "Parameters",
+    copyFailed: "Copy failed"
   },
   progress: {
     snapshotDb: "Snapshotting database…",
@@ -1921,6 +1953,8 @@ export const en = {
     textFileSaved: "File saved.",
     diskChangedRefreshFailed: "Disk contents changed, but refreshing the UI failed.",
     exportComplete: "Export complete: {files} files, {bytes}.",
+    generationRecordsExported: "Exported {count} generation records.",
+    generationRecordsExportFailed: "Failed to export generation records.",
     paletteTooMany: "Failed to save palette. Reason: manual palette allows at most 20 colors.",
     paletteBadFormat: "Failed to save palette. Reason: colors must use #RRGGBB format.",
     batchRatingFailed: "Failed to set rating in batch.",

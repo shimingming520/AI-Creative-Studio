@@ -531,4 +531,120 @@ describe("NavigationSidebar virtual library root", () => {
       "move",
     );
   });
+
+  it("renders the 生成资产 fixed section when configured and rows click through", async () => {
+    const onChooseGeneratedAssets = vi.fn();
+    const props = createNavigationProps({
+      assetScope: "generated",
+      generatedAssetsRootConfigured: true,
+      generatedAssetsFolderName: "ComfyUI 输出",
+      generatedAssetCounts: {
+        all: 42,
+        image: 30,
+        video: 8,
+        audio: 4,
+        model: 1,
+        document: 2,
+        other: 0,
+      },
+      activeGeneratedKind: "image",
+      onChooseGeneratedAssets,
+    });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(
+          LocaleProvider,
+          null,
+          createElement(NavigationSidebar, props),
+        ),
+      );
+    });
+
+    const headings = [...container.querySelectorAll(".nav-section-heading")];
+    expect(
+      headings.some((heading) =>
+        /生成资产|Generated assets/u.test(heading.textContent ?? ""),
+      ),
+    ).toBe(true);
+
+    const generatedRows = [
+      ...container.querySelectorAll<HTMLButtonElement>(".nav-row"),
+    ].filter((row) =>
+      /图像|视频|音频|3D|文档|其他|Images|Videos|Audio|3D models|Documents|Other/u.test(
+        row.textContent ?? "",
+      ),
+    );
+    expect(generatedRows).toHaveLength(6);
+    const imageRow = generatedRows.find((row) =>
+      /图像|Images/u.test(row.textContent ?? ""),
+    );
+    expect(imageRow).toBeDefined();
+    expect(imageRow?.textContent).toContain("30");
+    expect(imageRow?.classList.contains("is-active")).toBe(true);
+    const modelRow = generatedRows.find((row) =>
+      /3D/u.test(row.textContent ?? ""),
+    );
+    expect(modelRow).toBeDefined();
+    expect(modelRow?.textContent).toContain("1");
+    const videoRow = generatedRows.find((row) =>
+      /视频|Videos/u.test(row.textContent ?? ""),
+    );
+    await act(async () => videoRow?.click());
+    expect(onChooseGeneratedAssets).toHaveBeenCalledWith("video");
+  });
+
+  it("hides the 生成资产 section when not configured", async () => {
+    const props = createNavigationProps({
+      generatedAssetsRootConfigured: false,
+    });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(
+          LocaleProvider,
+          null,
+          createElement(NavigationSidebar, props),
+        ),
+      );
+    });
+
+    const headings = [...container.querySelectorAll(".nav-section-heading")];
+    expect(
+      headings.some((heading) =>
+        /生成资产|Generated assets/u.test(heading.textContent ?? ""),
+      ),
+    ).toBe(false);
+  });
+
+  it("shows the linked hint when configured but not yet linked", async () => {
+    const props = createNavigationProps({
+      generatedAssetsRootConfigured: true,
+      generatedAssetsFolderName: null,
+    });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(
+          LocaleProvider,
+          null,
+          createElement(NavigationSidebar, props),
+        ),
+      );
+    });
+
+    const hint = [...container.querySelectorAll(".nav-empty")].find((node) =>
+      /output directory|输出目录/u.test(node.textContent ?? ""),
+    );
+    expect(hint).toBeDefined();
+  });
 });

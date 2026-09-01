@@ -171,6 +171,8 @@ export const zhCN = {
     tagScope: "标签 · {name}",
     collectionScope: "合集 · {name}",
     smartCollectionScope: "智能合集 · {name}",
+    generatedAssets: "生成资产",
+    generatedKind: "生成资产 · {kind}",
     tagFilter: "标签筛选",
     tagNamed: "标签：{name}",
     collectionView: "合集视图",
@@ -186,6 +188,8 @@ export const zhCN = {
     addFolder: "添加文件夹",
     addSection: "添加{title}",
     secondaryAction: "次要操作{title}",
+    exportSection: "导出{title}",
+    exportGenerationRecords: "导出生成记录（JSON/CSV）",
     includeChildCollections: "包含子合集",
     childCollectionCount: "子合集 {count} 个",
     includeChildFolders: "包含子文件夹",
@@ -213,7 +217,18 @@ export const zhCN = {
     linkedFolderHint: "右键编辑规则；Shift+右键转换为托管。可拖入所选托管资产。",
     importLinkedFolder: "导入链接文件夹",
     newFolder: "新建文件夹",
-    tagManagement: "标签管理"
+    tagManagement: "标签管理",
+    generatedAssets: "生成资产",
+    generatedAll: "全部生成资产",
+    generatedImage: "图像",
+    generatedVideo: "视频",
+    generatedAudio: "音频",
+    generatedModel: "3D 模型",
+    generatedDocument: "文档",
+    generatedOther: "其他",
+    generatedLinkedHint:
+      "生成输出目录还未链接为资源库目录，首次打开资源管理后将自动收录。",
+    generatedOpenLibraryHint: "打开资源库后显示生成资产"
   },
   tagMgmt: {
     title: "标签管理",
@@ -1640,9 +1655,26 @@ export const zhCN = {
     smartCollectionTitle: "没有符合此智能合集的资产",
     smartCollectionBody:
       "智能合集显示符合已保存查询条件的资产。资源库菜单中的导入进入资源库，不会写入此查询。",
+    generatedTitle: "还没有生成资产",
+    generatedBody:
+      "在应用中生成的图像、视频、音频等会按类型自动收录到这里。",
     noLibraryTitle: "创建本地资源库",
     noLibraryBody: "资产文件、目录与元数据保存在本地所选位置。",
     recentLibraries: "最近使用的资源库"
+  },
+  generation: {
+    title: "生成记录",
+    taskType: "任务类型",
+    prompt: "提示词",
+    promptCopy: "复制提示词",
+    promptCopied: "已复制",
+    workflow: "工作流",
+    model: "模型",
+    duration: "生成耗时",
+    createdAt: "生成时间",
+    engine: "引擎",
+    params: "生成参数",
+    copyFailed: "复制失败"
   },
   progress: {
     snapshotDb: "快照数据库…",
@@ -1906,6 +1938,8 @@ export const zhCN = {
     textFileSaved: "文件已保存。",
     diskChangedRefreshFailed: "磁盘内容已变化，但界面刷新失败。",
     exportComplete: "导出完成：{files} 文件，{bytes}。",
+    generationRecordsExported: "已导出 {count} 条生成记录。",
+    generationRecordsExportFailed: "生成记录导出失败。",
     paletteTooMany: "保存色卡失败。原因：人工色卡最多包含 20 个颜色值。",
     paletteBadFormat: "保存色卡失败。原因：颜色必须使用 #RRGGBB 格式。",
     batchRatingFailed: "批量设置评分失败。",

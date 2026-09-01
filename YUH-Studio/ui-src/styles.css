@@ -41,3 +41,43 @@ h2 { margin-bottom: 0; font-size: 18px; letter-spacing: -.02em; }
 pre { max-height: 195px; overflow: auto; margin: 0; padding: 16px; border-radius: 12px; color: #b6c4cf; background: #090c0f; font: 12px/1.65 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; }
 footer { display: flex; gap: 22px; margin-top: 22px; color: #60707c; font-size: 12px; }
 @media (max-width: 1150px) { body { min-width: 0; } .shell { width: min(100% - 30px, 900px); padding-top: 30px; } .topbar { flex-direction: column; } .grid { grid-template-columns: 1fr; } .logs-card { grid-column: auto; } footer { flex-direction: column; gap: 6px; } }
+
+/* ---------- 自定义工作流 ---------- */
+.break-all { word-break: break-all; }
+.workflow-grid { display: grid; grid-template-columns: 340px 1fr minmax(300px, 420px); gap: 18px; align-items: start; }
+@media (max-width: 1350px) { .workflow-grid { grid-template-columns: 1fr; } }
+.workflows-panel, .params-panel, .output-panel { min-height: 420px; }
+.workflow-tree { display: flex; flex-direction: column; gap: 8px; max-height: 72vh; overflow: auto; padding-right: 4px; }
+.tree-group { display: flex; flex-direction: column; gap: 4px; }
+.tree-folder { margin: 8px 0 2px; color: #8fb1c8; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.tree-item { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 9px 11px; text-align: left; color: #b8c6d2; background: #131a21; border: 1px solid #24313c; }
+.tree-item:hover { transform: none; background: #18222b; }
+.tree-item.selected { color: #dff3e7; background: #1c3327; border-color: #3c6a50; }
+.tree-name { font-size: 13px; font-weight: 600; word-break: break-all; }
+.tree-meta { color: #6f8290; font-size: 11px; }
+.param-form { display: flex; flex-direction: column; gap: 13px; }
+.section-title { margin-top: 14px; color: #88a0b2; font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; color: #c6d2dc; font-size: 13px; font-weight: 600; }
+.field small { color: #6f8290; font-size: 11px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field textarea, .field input[type="number"], .field select { width: 100%; padding: 9px 11px; color: #e6edf4; background: #0e141a; border: 1px solid #2a3844; border-radius: 10px; font: inherit; }
+.field textarea { resize: vertical; min-height: 110px; }
+.field select { cursor: pointer; }
+.inline-check { display: inline-flex; align-items: center; gap: 6px; color: #95a5b1; font-size: 12px; }
+.inline-check input { accent-color: #9ee7c2; }
+.file-row { display: flex; align-items: center; padding: 8px 10px; border-radius: 10px; background: #0e141a; }
+.file-row code { color: #9fb0bd; font-size: 12px; word-break: break-all; }
+.warn { margin: 4px 0; color: #f0b08c; font-size: 12px; }
+.issues { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #4b3a2a; border-radius: 12px; background: #241b12; }
+.sticky-actions { position: sticky; bottom: 0; padding: 12px 0; margin-top: 18px; background: linear-gradient(180deg, transparent, #10161c 30%); }
+.progress-track { height: 10px; border-radius: 999px; margin: 6px 0 18px; background: #131b22; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3ba57c, #9ee7c2); transition: width .5s ease; }
+.output-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.output-media { width: 100%; max-height: 380px; border-radius: 12px; background: #090c0f; object-fit: contain; }
+.history-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow: auto; }
+.history-item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 10px; background: #10161c; border: 1px solid #22303b; }
+.history-item strong { display: block; color: #cfdae3; font-size: 13px; }
+.history-item small { color: #7d8f9c; font-size: 11px; word-break: break-all; }
+.history-item.status-succeeded { border-color: #2e5c44; }
+.history-item.status-failed { border-color: #5c2e38; }
+.history-item.status-running, .history-item.status-queued { border-color: #3c5a72; }

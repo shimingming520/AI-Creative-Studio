@@ -1,6 +1,0 @@
-﻿--extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.11.0+cpu
-torchaudio==2.11.0+cpu
-modelscope>=1.17
-funasr>=1.1
-nemo_toolkit[asr]>=2.7

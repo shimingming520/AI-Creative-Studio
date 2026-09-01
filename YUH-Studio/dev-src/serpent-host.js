@@ -14,6 +14,7 @@
  * 开关：YUH_SERPENT_HOST=1 时启用（配合 SERPENT_ROOT 指定 Serpent 目录）。
  */
 const path = require("node:path");
+const fs = require("node:fs");
 const { app, WebContentsView, BrowserWindow } = require("electron");
 const { mark } = require("./serpent-host-mark");
 
@@ -104,12 +105,56 @@ const SERPENT_RENDERER_HTML = path.join(
 let serpentMain = null; // Serpent 主进程模块（patched build）
 let serpView = null; // WebContentsView
 let hostWindow = null; // YUH 主窗口（dialog parent）
-let started = false;
+let started = false; // Serpent 服务已启动
 let shutdownDone = false;
 let resizeHandler = null;
+let viewAttached = false; // 嵌入视图当前是否可见（在 contentView 中）
+let lastError = null;
+let railWidthPx = 0; // 渲染进程上报的侧边栏实测宽度
+let railLeftPx = 0; // 侧边栏右边缘（渲染进程坐标）
+let bodyTopPx = 0; // 内容区顶部（渲染进程坐标）
+const statusListeners = new Set();
 
+// 默认启用：Serpent 构建产物存在即可用（YUH_SERPENT_HOST=0 可显式禁用）。
 function enabled() {
-  return process.env.YUH_SERPENT_HOST === "1";
+  if (process.env.YUH_SERPENT_HOST === "0") return false;
+  return require("node:fs").existsSync(path.join(SERPENT_BUILD, "main.js"));
+}
+
+function getState() {
+  return {
+    enabled: enabled(),
+    servicesStarted: started,
+    rendererReady:
+      Boolean(serpView) &&
+      !serpView.webContents.isDestroyed() &&
+      serpView.webContents.getURL().length > 0,
+    visible: viewAttached,
+    error: lastError,
+  };
+}
+
+function pushState() {
+  const state = getState();
+  for (const listener of statusListeners) {
+    try {
+      listener(state);
+    } catch {}
+  }
+}
+
+function onState(listener) {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
+}
+
+function setRailWidthPx(width, left, bodyTop) {
+  if (typeof width === "number" && width > 0 && width !== railWidthPx) {
+    railWidthPx = width;
+  }
+  if (typeof left === "number" && left > 0) railLeftPx = left;
+  if (typeof bodyTop === "number" && bodyTop > 0) bodyTopPx = bodyTop;
+  layoutView();
 }
 
 /**
@@ -149,80 +194,189 @@ function preload() {
 function layoutView() {
   if (!serpView || !hostWindow || hostWindow.isDestroyed()) return;
   const bounds = hostWindow.getContentBounds();
-  // 顶部让出 40px（YUH 自定义标题栏 drag region），其余全部给 Serpent。
+  // 左侧让出侧边栏（.left-rail: clamp(168px, 11vw, 200px)），顶部让出标题栏
+  // 40px；优先使用渲染进程上报的实测 railLeftPx/bodyTopPx，缺省时按 11vw 近似。
+  const sideWidth =
+    railLeftPx > 0
+      ? railLeftPx
+      : railWidthPx > 0
+        ? railWidthPx
+        : Math.max(168, Math.min(200, Math.round(bounds.width * 0.11)));
+  const top = bodyTopPx > 0 ? bodyTopPx : 40;
   serpView.setBounds({
-    x: 0,
-    y: 40,
-    width: bounds.width,
-    height: Math.max(0, bounds.height - 40),
+    x: sideWidth,
+    y: top,
+    width: Math.max(0, bounds.width - sideWidth),
+    height: Math.max(0, bounds.height - top),
   });
+  mark(
+    "mount:view-bounds",
+    `x=${sideWidth} y=${top} w=${Math.max(0, bounds.width - sideWidth)} h=${Math.max(0, bounds.height - top)} window=${bounds.width}x${bounds.height}`,
+  );
 }
 
 /**
- * app.ready 之后调用；返回 true 表示挂载成功。
+ * Hosted 模式下 Serpent 的 `registerWindowControls` 被跳过（它只服务
+ * Serpent 自己的 mainWindow），且宿主窗口自带最小化/最大化/关闭，嵌入视图
+ * 不再显示标题栏按钮：宿主把 ?serpentHosted=1 传给 renderer 隐藏按钮，
+ * 因此这里不再注册任何 window-control IPC 桥接（功能一并移除）。
  */
-async function mount() {
-  mark("mount:enter", `enabled=${enabled()} serpentMain=${Boolean(serpentMain)}`);
-  if (!enabled() || !serpentMain) return false;
-  try {
-    // 1) 启动 Serpent 全部服务（此调用会注册 IPC handler 并启动 worker）。
-    mark("mount:startSerpentHosted");
-    await serpentMain.startSerpentHosted();
-    started = true;
-    mark("mount:services-started");
-    console.log("[serpent-host] Serpent services started (worker/DB + offscreen)");
 
-    // 2) 宿主窗口回调需要真实 BrowserWindow。
-    const win = getYuhWindow();
-    hostWindow = win;
-    if (!win) {
-      mark("mount:ERROR", "no host window found for dialog parent");
-    } else {
-      serpentMain.setSerpentHostedDialogWindow(win);
-      win.on("resize", layoutView);
+/**
+ * 幂等地启动 Serpent 全部服务（worker/DB + offscreen + IPC handler）。
+ */
+async function ensureServices() {
+  if (started) return true;
+  mark("mount:startSerpentHosted");
+  await serpentMain.startSerpentHosted();
+  started = true;
+  mark("mount:services-started");
+  console.log("[serpent-host] Serpent services started (worker/DB + offscreen)");
+  return true;
+}
+
+/**
+ * 幂等地创建嵌入视图并加载 Serpent renderer（成功后 serpView 已就绪）。
+ * 隐藏（removeChildView）不会销毁视图 —— 渲染进程与资源库状态原样保留，
+ * 再次 show 立即恢复上次浏览内容。仅当渲染进程已死（崩溃/被销毁）时
+ * 丢弃旧视图并重建一个新的。
+ */
+async function ensureView() {
+  if (serpView) {
+    const wc = serpView.webContents;
+    if (wc && !wc.isDestroyed()) return true;
+    // 死视图（崩溃/OOM/被销毁）绝不能作为空白视图重新挂回；丢弃并重建。
+    mark("mount:view-stale-recreate");
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      try {
+        hostWindow.contentView.removeChildView(serpView);
+      } catch {}
     }
-
-    // 3) 创建嵌入视图：Serpent 自己的 preload + sandbox。
-    const view = new WebContentsView({
-      webPreferences: {
-        preload: SERPENT_PRELOAD, // Serpent preload bundle (.vite/build/index.js)
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webSecurity: false, // 与 YUH dev 行为一致：file:// 下加载本地资源
-      },
-    });
-    serpView = view;
-    mark("mount:view-created");
-    win.contentView.addChildView(view);
-    layoutView();
-
-    // 4) 把视图 webContents 交给 Serpent（所有 send/授权检查都改为查它）。
-    serpentMain.setSerpentHostedRenderer(view.webContents);
-
-    // 5) 加载 Serpent 渲染器。
-    mark("mount:loadFile", SERPENT_RENDERER_HTML);
-    await view.webContents.loadFile(SERPENT_RENDERER_HTML);
-    mark("mount:renderer-loaded");
-    console.log("[serpent-host] renderer loaded:", SERPENT_RENDERER_HTML);
-
-    // 6) 挂载探测：等 renderer 的 .app-shell 出现。
-    const mounted = await waitForMounted(view.webContents, 20_000);
-    mark("mount:mounted", String(mounted));
-    console.log(
-      mounted
-        ? "[serpent-host] renderer MOUNTED (.app-shell)"
-        : "[serpent-host] renderer did NOT mount within timeout",
-    );
-    if (mounted && process.env.YUH_SERPENT_SMOKE === "1") {
-      await runSmoke(view.webContents);
-    }
-    return mounted;
-  } catch (error) {
-    mark("mount:ERROR", String(error && error.stack ? error.stack : error));
-    console.error("[serpent-host] mount failed:", error);
+    serpView = null;
+    viewAttached = false;
+  }
+  // 宿主窗口回调需要真实 BrowserWindow。
+  const win = getYuhWindow();
+  hostWindow = win;
+  if (!win) {
+    mark("mount:ERROR", "no host window found for dialog parent");
+    lastError = "no host window found for dialog parent";
     return false;
   }
+  serpentMain.setSerpentHostedDialogWindow(win);
+  win.on("resize", layoutView);
+
+  // 创建嵌入视图：Serpent 自己的 preload + sandbox。
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: SERPENT_PRELOAD, // Serpent preload bundle (.vite/build/index.js)
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: false, // 与 YUH dev 行为一致：file:// 下加载本地资源
+    },
+  });
+  serpView = view;
+  mark("mount:view-created");
+
+  // 把视图 webContents 交给 Serpent（所有 send/授权检查都改为查它）。
+  serpentMain.setSerpentHostedRenderer(view.webContents);
+
+  // 加载 Serpent 渲染器。?serpentHosted=1 让 renderer 隐藏自绘的
+  // 最小化/最大化/关闭标题栏按钮（宿主窗口自带这些控制）。
+  mark("mount:loadFile", SERPENT_RENDERER_HTML);
+  await view.webContents.loadFile(SERPENT_RENDERER_HTML, {
+    query: { serpentHosted: "1" },
+  });
+  mark("mount:renderer-loaded");
+  console.log("[serpent-host] renderer loaded:", SERPENT_RENDERER_HTML);
+
+  // 挂载探测：等 renderer 的 .app-shell 出现。
+  const mounted = await waitForMounted(view.webContents, 20_000);
+  mark("mount:mounted", String(mounted));
+  console.log(
+    mounted
+      ? "[serpent-host] renderer MOUNTED (.app-shell)"
+      : "[serpent-host] renderer did NOT mount within timeout",
+  );
+  if (mounted && process.env.YUH_SERPENT_SMOKE === "1") {
+    await runSmoke(view.webContents);
+  }
+  return mounted;
+}
+
+/**
+ * 显示 Serpent 视图（必要时先懒挂载）。返回 true 表示视图已可见。
+ */
+async function show() {
+  mark("mount:enter", `enabled=${enabled()} serpentMain=${Boolean(serpentMain)}`);
+  if (!enabled() || !serpentMain) {
+    lastError = "Serpent 未启用或主模块未加载";
+    pushState();
+    return false;
+  }
+  try {
+    await ensureServices();
+    const viewReady = await ensureView();
+    if (!viewReady || !serpView || !hostWindow || hostWindow.isDestroyed()) {
+      lastError = lastError || "Serpent 视图初始化失败";
+      pushState();
+      return false;
+    }
+    if (!viewAttached) {
+      hostWindow.contentView.addChildView(serpView);
+      viewAttached = true;
+      layoutView();
+    }
+    lastError = null;
+    pushState();
+    return true;
+  } catch (error) {
+    lastError = String(error && error.stack ? error.stack : error);
+    mark("mount:ERROR", lastError);
+    console.error("[serpent-host] mount failed:", error);
+    pushState();
+    return false;
+  }
+}
+
+/**
+ * 隐藏 Serpent 视图（服务保持运行，再次 show 立即恢复）。
+ */
+function hide() {
+  if (!viewAttached || !serpView) {
+    pushState();
+    return false;
+  }
+  const wc = serpView.webContents;
+  // 渲染进程已死：直接当作已隐藏，避免把死视图留在 contentView 里。
+  if (!wc || wc.isDestroyed()) {
+    serpView = null;
+    viewAttached = false;
+    pushState();
+    return true;
+  }
+  try {
+    if (hostWindow && !hostWindow.isDestroyed()) {
+      hostWindow.contentView.removeChildView(serpView);
+    }
+  } catch (error) {
+    console.error("[serpent-host] hide error:", error);
+  }
+  viewAttached = false;
+  pushState();
+  return true;
+}
+
+/**
+ * 切换显示/隐藏。
+ */
+async function toggle() {
+  if (viewAttached) {
+    hide();
+    return false;
+  }
+  return show();
 }
 
 /**
@@ -422,6 +576,157 @@ function getYuhWindow() {
   return all[0] || null;
 }
 
+// --- ComfyUI 输出路径跟踪（资源管理自动链接） ------------------------------
+// 把 YUH 存储设置中的输出文件夹自动注册为当前 Serpent 资源库的链接文件夹
+// 「ComfyUI 输出」：虚拟索引、不复制文件；链接根目录由 Serpent 的
+// fs watcher 自动增量收录新生成物，合集/智能合集/标签/搜索/删除等
+// 资源管理能力全部可用。
+const COMFYUI_LINK_DISPLAY_NAME = "ComfyUI 输出";
+const COMFYUI_LINK_STATE_FILE = "yuh-comfyui-link-state.json";
+
+function comfyuiLinkStatePath() {
+  return path.join(app.getPath("userData"), COMFYUI_LINK_STATE_FILE);
+}
+
+function readComfyuiLinkState() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(comfyuiLinkStatePath(), "utf8"));
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {
+    // 首次运行或文件损坏：当作从未同步过。
+  }
+  return null;
+}
+
+function writeComfyuiLinkState(state) {
+  try {
+    fs.mkdirSync(path.dirname(comfyuiLinkStatePath()), { recursive: true });
+    fs.writeFileSync(
+      comfyuiLinkStatePath(),
+      JSON.stringify(state, null, 2),
+      "utf8",
+    );
+  } catch (error) {
+    console.error("[serpent-host] write comfyui-link state failed:", error);
+  }
+}
+
+/**
+ * 幂等同步「ComfyUI 输出」链接文件夹到当前资源库。
+ *
+ * 规则：
+ *  - 已存在且输出路径一致 → 无操作；
+ *  - 已存在但输出路径变了 → 自动 relink（保留链接 id、继续收录新文件）；
+ *  - 不存在 → 自动创建（功能默认开启）；
+ *  - 同一资源库中曾同步过、现在消失了 → 视为用户手动移除，不再自动重建；
+ *    若用户之后手动以同一路径导入，下一次同步会把该链接认领回来并恢复跟踪；
+ *  - 还打开着别的资源库（从未在该库同步过）→ 照常创建；
+ *  - 尚未打开资源库 → 返回 no-library-open，下次打开资源管理时重试。
+ */
+async function ensureComfyuiOutputLink(outputRoot) {
+  if (!outputRoot || typeof outputRoot !== "string" || !outputRoot.trim()) {
+    mark("link:invalid", String(outputRoot));
+    return { ok: false, code: "invalid-output-dir" };
+  }
+  const root = outputRoot.trim();
+  mark("link:enter", `root=${root} started=${started} main=${Boolean(serpentMain)}`);
+  // 生成资产 fixed sidebar: hand the output root to Serpent main so the
+  // renderer can match it against the linked folder below and show the
+  // 图像/视频/音频 rows. Set before the readiness guard — the renderer may
+  // refetch the root as soon as the library opens (no-library-open is fine).
+  try {
+    if (serpentMain && typeof serpentMain.setHostedGeneratedAssetsRoot === "function") {
+      serpentMain.setHostedGeneratedAssetsRoot(root, COMFYUI_LINK_DISPLAY_NAME);
+      mark("link:root-set", root);
+    } else {
+      mark("link:root-set-skipped", "setter unavailable");
+    }
+  } catch (error) {
+    console.warn("[serpent-host] set generated-assets root failed:", error);
+    mark("link:root-set-FAIL", String(error));
+  }
+  if (!started || !serpentMain || typeof serpentMain.hostedManageLinkedFolder !== "function") {
+    mark("link:skip", "serpent-not-ready");
+    return { ok: false, code: "serpent-not-ready" };
+  }
+  try {
+    const state = readComfyuiLinkState();
+    mark(
+      "link:state",
+      JSON.stringify(
+        state
+          ? {
+              libraryId: state.libraryId,
+              root: state.root,
+              folderId: state.folderId ?? null,
+              dismissed: state.dismissedLibraryId ?? null,
+            }
+          : null,
+      ),
+    );
+    const previousSynced =
+      state &&
+      typeof state.libraryId === "string" &&
+      typeof state.root === "string";
+
+    const decide = async (allowCreate, depth) => {
+      if (depth > 2) {
+        return { ok: false, code: "sync-error", message: "unexpected repeated missing" };
+      }
+      const result = await serpentMain.hostedManageLinkedFolder({
+        displayName: COMFYUI_LINK_DISPLAY_NAME,
+        sourceRootPath: root,
+        allowCreate,
+      });
+      mark(
+        "link:manage-result",
+        `code=${result.code || "ok"} action=${result.action || "-"} folder=${result.folderId ?? "-"} library=${result.libraryId || "-"}`,
+      );
+      if (!result.ok) return result;
+      if (result.action === "missing") {
+        const userRemoved = previousSynced && state.libraryId === result.libraryId;
+        if (userRemoved) {
+          writeComfyuiLinkState({
+            ...state,
+            libraryId: result.libraryId,
+            folderId: null,
+            root,
+            dismissedLibraryId: result.libraryId,
+          });
+          return { ok: false, code: "removed-by-user" };
+        }
+        // 首次同步或换到新的资源库：允许创建。
+        return decide(true, depth + 1);
+      }
+      writeComfyuiLinkState({
+        libraryId: result.libraryId,
+        folderId: result.folderId ?? null,
+        root,
+        dismissedLibraryId: null,
+      });
+      return result;
+    };
+
+    const result = await decide(previousSynced ? false : true, 0);
+    mark("link:result", `code=${result.code || "ok"} action=${result.action || "-"} folder=${result.folderId ?? "-"}`);
+    if (result.ok) {
+      console.log(
+        `[serpent-host] comfyui link ${result.action} folder=${result.folderId || "-"} root=${root}`,
+      );
+    } else if (result.code !== "no-library-open" && result.code !== "removed-by-user") {
+      console.warn("[serpent-host] comfyui link sync failed:", result);
+    }
+    return result;
+  } catch (error) {
+    console.error("[serpent-host] comfyui link sync error:", error);
+    return {
+      ok: false,
+      code: "sync-error",
+      message: String((error && error.message) || error),
+    };
+  }
+}
+
 /**
  * 宿主退出前调用：停掉 Serpent 服务并清理视图。
  */
@@ -437,6 +742,7 @@ async function shutdown() {
         hostWindow.contentView.removeChildView(serpView);
       }
       serpView = null;
+      viewAttached = false;
     }
     if (resizeHandler && hostWindow && !hostWindow.isDestroyed()) {
       hostWindow.removeListener("resize", resizeHandler);
@@ -451,4 +757,30 @@ async function shutdown() {
   }
 }
 
-module.exports = { preload, mount, shutdown, enabled };
+module.exports = {
+  preload,
+  show,
+  hide,
+  toggle,
+  shutdown,
+  enabled,
+  getState,
+  onState,
+  setRailWidthPx,
+  ensureComfyuiOutputLink,
+  /**
+   * 推送生成记录（输出路径 → prompt/工作流/参数/模型/耗时）给 Serpent 主进程。
+   * 旧版 Serpent 构建没有该 API 时静默跳过。
+   */
+  setGeneratedAssetsRecords(records) {
+    try {
+      if (serpentMain && typeof serpentMain.setHostedGenerationRecords === "function") {
+        serpentMain.setHostedGenerationRecords(records);
+        return true;
+      }
+    } catch (error) {
+      console.warn("[serpent-host] set generation records failed:", error);
+    }
+    return false;
+  },
+};

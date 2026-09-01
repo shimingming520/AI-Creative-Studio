@@ -2632,15 +2632,18 @@ button:disabled {
 
 /* Unified application settings */
 .app-settings-modal {
-  width: min(620px, 95vw);
-  max-height: 84vh;
+  width: min(1060px, 94vw);
+  height: min(860px, 90vh);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--bg-soft);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
 }
 .app-settings-modal .modal-header {
+  flex: 0 0 auto;
   height: 58px;
   display: flex;
   align-items: center;
@@ -2668,10 +2671,81 @@ button:disabled {
   background: var(--panel-strong);
   cursor: pointer;
 }
-.app-settings-modal .modal-body {
-  max-height: calc(84vh - 58px);
+/* 左右分栏：左侧分类导航 + 右侧内容区 */
+.app-settings-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.app-settings-nav {
+  flex: 0 0 188px;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   overflow-y: auto;
-  padding: 18px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.app-settings-nav-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.app-settings-nav-button > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.app-settings-nav-button:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+.app-settings-nav-button.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--text);
+}
+.app-settings-nav-button.active > svg {
+  color: var(--accent);
+}
+.app-settings-content {
+  flex: 1;
+  min-width: 0;
+}
+/* 内嵌到软件设置弹窗中的配置页（工作区/ComfyUI 目录/模型中转站/局域网共享） */
+.app-settings-embedded {
+  width: 100%;
+  min-width: 0;
+}
+.app-settings-embedded-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.app-settings-embedded-card .setup-content,
+.app-settings-embedded-card .settings-body {
+  padding: 2px 0 0;
+}
+.app-settings-saved-note {
+  margin: 8px 1px 0;
+  color: var(--green);
+  font-size: 10px;
+}
+.app-settings-modal .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 24px;
 }
 .app-settings-section + .app-settings-section {
   margin-top: 20px;
@@ -2687,8 +2761,8 @@ button:disabled {
 }
 .vram-mode-list {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
 }
 .vram-mode-list button,
 .app-settings-row {
@@ -10526,6 +10600,42 @@ select option:hover {
   display: grid;
   place-items: center;
   color: var(--blue);
+}
+.reference-items.audio .audio-player-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 6px;
+}
+.reference-items.audio .audio-player-item audio {
+  width: 140px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: #080a0d;
+  display: block;
+}
+.reference-items.audio .audio-player-item .file-caption {
+  position: static;
+  left: auto;
+  right: auto;
+  top: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 24px 0 0;
+}
+.reference-items.audio .audio-player-item .reference-index {
+  position: static;
+  flex: 0 0 auto;
+}
+.reference-section.droppable .add-reference {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.reference-section.drop-active,
+.reference-section.drop-active .reference-items {
+  outline: 2px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 3px;
+  border-radius: 12px;
 }
 .reference-items.audio .file-caption {
   position: absolute;
@@ -23230,4 +23340,146 @@ html.ios-web-canvas .ios-web-shell .generation-showcase-media {
     min-height: 82px;
     max-height: 82px;
   }
+}
+
+/* ============ 生成音频工作台（本地 ComfyUI 音频工作流直连） ============ */
+.audio-generation-workspace .audio-mode-tabs {
+  grid-template-columns: 1fr 1fr;
+}
+.audio-generation-workspace .audio-mode-tabs button {
+  min-height: 52px;
+}
+.audio-generation-workspace .audio-text-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.audio-generation-workspace .audio-text-slot:last-child {
+  margin-bottom: 0;
+}
+.audio-generation-workspace .audio-text-slot > label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 700;
+}
+.audio-generation-workspace .audio-text-slot > label small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-generation-workspace .audio-slot-textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.audio-generation-workspace .audio-slot-textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.audio-generation-workspace .audio-number-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: 0;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+}
+.audio-generation-workspace .audio-number-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.audio-generation-workspace .audio-inline-link {
+  margin-left: 6px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+}
+.audio-generation-workspace .audio-output-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.audio-generation-workspace .audio-output-card {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+}
+.audio-generation-workspace .audio-output-card > strong {
+  display: block;
+  font-size: 11px;
+}
+.audio-generation-workspace .audio-output-card > small {
+  display: block;
+  margin: 3px 0 8px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.audio-generation-workspace .audio-output-actions {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.audio-generation-workspace .audio-output-actions button {
+  width: 34px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted-strong);
+  background: var(--panel);
+  cursor: pointer;
+}
+.audio-generation-workspace .audio-output-actions button:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.audio-generation-workspace .audio-output-card audio,
+.audio-generation-workspace .audio-output-card video {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+}
+.audio-generation-workspace .audio-output-card img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.audio-generation-workspace .audio-text-output {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  word-break: break-all;
+}
+.audio-generation-workspace .audio-text-output svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.audio-generation-workspace .h3-speed-card > div:first-child svg {
+  flex: 0 0 auto;
 }

@@ -604,6 +604,23 @@ body.platform-darwin .app-shell.left-collapsed .toolbar-workspace-cluster {
   padding-right: calc(3 * var(--windows-caption-width, 46px) + 8px);
 }
 
+/* Serpent hosted (SERPENT_HOSTED=1, e.g. YUH Studio「资源管理」): the host
+   window owns minimize / maximize / close, so the embedded renderer draws no
+   caption buttons and must not reserve their width — the Inspector toggle
+   returns to the default right edge instead. */
+:root[data-platform="windows"] body.serpent-hosted .toolbar-inspector-cluster {
+  padding-right: 10px;
+}
+
+:root[data-platform="windows"] body.serpent-hosted .app-shell.right-collapsed .toolbar-inspector-cluster {
+  right: 10px;
+  padding-right: 0;
+}
+
+:root[data-platform="windows"] body.serpent-hosted .app-shell.right-collapsed .toolbar-workspace-cluster {
+  padding-right: calc(10px + var(--shell-control-height) + 6px);
+}
+
 
 .windows-window-controls {
   /* Serpent-52a9b4: portaled to document.body — position: fixed and the
@@ -11338,6 +11355,89 @@ select.ai-config-input.ai-config-languages {
 
 .inspector-tags-section {
   margin-top: 14px;
+}
+
+/* 生成记录 (Inspector generation provenance) */
+.inspector-generation-section {
+  margin-top: 14px;
+}
+
+.inspector-generation-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+
+.inspector-generation-label {
+  flex: 0 0 72px;
+  color: var(--secondary);
+  font-size: 11px;
+}
+
+.inspector-generation-value {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.inspector-generation-prompt {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.inspector-generation-prompt p {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.inspector-generation-copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.inspector-generation-copy:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.inspector-generation-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  flex: 1 1 auto;
+}
+
+.inspector-generation-param {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.inspector-generation-param em {
+  font-style: normal;
+  color: var(--secondary);
+  font-size: 11px;
 }
 
 .conflict-dialog {

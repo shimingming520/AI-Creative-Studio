@@ -25,11 +25,19 @@ npm install
 npm start
 ```
 
-首次安装会下载 Electron 开发运行时；应用默认从 `bundled-resources/` 加载 AI 引擎、模型运行库和 CUDA 依赖。ComfyUI 的外部共享目录现在放在 `F:\PyCharm_Project\ComfyUI-Shared`，并且可以在工作区设置里指定外部 ComfyUI 安装目录。
+首次安装会下载 Electron 开发运行时；应用默认从 `bundled-resources/` 加载 AI 引擎、模型运行库和 CUDA 依赖。ComfyUI 的外部共享目录现在放在 `F:\Comfy-Desktop\ComfyUI-Shared`（`models/`、`output/`、`input/`、`workflows/`），并且可以在工作区设置里指定外部 ComfyUI 安装目录，填 `F:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI`（根目录下含 `main.py`）。
 
 `npm start` 当前运行的是 `dev-src/` 中的可读代码，不是 `app-full/` 的原始构建副本。执行 `npm run check` 可以在启动前检查三层 JavaScript 语法。
 
 修改 `engine-source/` 中的 Python 或配置后，启动脚本会自动执行 `npm run sync-engine`，把源文件同步到 `bundled-resources/engine` 再运行。
+
+## 资源管理中的「生成资产」固定标签
+
+Serpent 侧栏（Serpent`src/renderer/NavigationSidebar.tsx`）新增固定分区「生成资产」：
+
+- 路径即 YUH 的「存储设置 → 输出文件夹」（`outputDir()`）；`dev-src/serpent-host.js` 通过 `setHostedGeneratedAssetsRoot` 把该路径推给 Serpent 主进程，渲染层再按绝对路径匹配链接文件夹（自动创建的「ComfyUI 输出」）。
+- 按类型分级：全部生成资产 / 图像 / 视频 / 音频 / 其他，统计数量随资产变更（fs watcher 收录新生成物）自动刷新；点击行浏览对应类型（链接文件夹递归范围 + `format` 过滤），支持搜索、标签、收藏、删除等常规资源管理操作。
+- 未配置/未链接时该分区隐藏或显示提示；独立运行 Serpent 可用环境变量 `SERPENT_GENERATED_ASSETS_ROOT` 指定同一目录。
 
 ## TSX 开发模式
 
@@ -44,6 +52,16 @@ npm run start:ui
 
 开发原版功能时直接运行 `npm run dev`，修改 `dev-src/renderer/`、`dev-src/main/` 或 `dev-src/preload/` 后重启 Electron。需要继续迁移 React 页面时，再运行 `npm run start:ui`；Vite 会热更新 `ui-src/` 页面。
 
+## 自定义工作流（直接运行 ComfyUI 工作流同步库）
+
+`ui-src/`（`npm run start:ui` 打开）包含一个「自定义工作流」页：
+
+- 自动扫描 `F:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI\user\default\workflows`（与 ComfyUI 网页保存目录一致，网页里保存即同步；ComfyUI Desktop 与程序共用一个安装目录）。
+- 主进程实现：`dev-src/main/workflows.js` —— UI 格式 → API 格式转换（支持 `widgets_values_named` 新版与旧版位置映射、seed 双值组件、bypassed/muted 节点跳过、死分支剪枝）、参数槽自动识别（提示词/宽高/时长/步数/种子/CFG/FPS）、模型文件槽位识别、提交前校验（自定义节点存在性 + 枚举候选 + 模型文件注册列表）。
+- IPC：`workflows:list` / `workflows:inspect` / `workflows:validate` / `workflows:run` / `workflows:cancel`（`dev-src/preload/index.js` 暴露 `window.h3.workflows.*`），运行结果走统一任务系统（进度、输出、历史）。
+- 已知限制：程序自建的 Python 运行时只安装 ComfyUI 根目录 `requirements.txt`，**不会**安装各自定义节点的依赖（`gguf`、`llama_cpp` 等）。因此使用自定义节点的工作流在程序内启动的引擎（8190）可能报「缺少自定义节点」；此时可在软件设置里把「远程后端」指向 ComfyUI Desktop 实例（`http://127.0.0.1:8188`，模型目录相同），或手动向运行时 venv 安装对应依赖。
+- 调试脚本：`node scripts/test-workflows.cjs`（扫描/转换/槽位/实时校验冒烟测试）。
+
 ## 独立打包
 
 项目已配置 Electron Builder：
@@ -53,7 +71,7 @@ npm run check
 npm run dist
 ```
 
-`dist` 默认打包完整原版界面；如果要测试 TSX 迁移页面，再使用 `npm run dist:ui`。产物位于 `release/`。打包配置会把 `bundled-resources/` 放到应用资源目录，因此卸载 `F:\Program_Files\YUH Studio` 后，打包应用仍能找到 IndexTTS、TTS、`llama.cpp` 和 `uv.exe`。模型目录、输出目录和 ComfyUI 共享资源现在统一走 `F:\PyCharm_Project\ComfyUI-Shared`；如果你想让项目接管外部 ComfyUI，请在工作区里填它的安装目录，或者直接设置 `COMFYUI_PATH`。
+`dist` 默认打包完整原版界面；如果要测试 TSX 迁移页面，再使用 `npm run dist:ui`。产物位于 `release/`。打包配置会把 `bundled-resources/` 放到应用资源目录，因此卸载 `F:\Program_Files\YUH Studio` 后，打包应用仍能找到 IndexTTS、TTS、`llama.cpp` 和 `uv.exe`。模型目录、输出目录和 ComfyUI 共享资源现在统一走 `F:\Comfy-Desktop\ComfyUI-Shared`；如果你想让项目接管外部 ComfyUI，请在工作区里填它的安装目录（`F:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI`），或者直接设置 `COMFYUI_PATH`。
 
 ## 二次开发建议
 

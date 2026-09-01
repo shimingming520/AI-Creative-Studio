@@ -764,6 +764,18 @@ const assetOperationSuccessSchemas = [
   }),
   z.strictObject({
     ok: z.literal(true),
+    type: z.literal('asset.source-path'),
+    /** Absolute source path (Main-only); null = unknown/missing asset. */
+    path: z.string().min(1).max(4096).nullable(),
+  }),
+  z.strictObject({
+    ok: z.literal(true),
+    type: z.literal('asset.asset-id-by-path'),
+    /** Asset id for the absolute source path; null = no matching asset. */
+    assetId: nonBlankString.nullable(),
+  }),
+  z.strictObject({
+    ok: z.literal(true),
     type: z.literal('asset.sequence.created'),
     asset: assetSummarySchema,
   }),
@@ -2054,6 +2066,53 @@ const rendererSuccessResultSchema = z.discriminatedUnion('type', [
     ok: z.literal(true),
     type: z.literal('library.recent-list'),
     libraries: recentLibraryListSchema,
+  }),
+  z.strictObject({
+    ok: z.literal(true),
+    type: z.literal('generated-assets.root'),
+    /** Generation output root; null means the feature is not configured. */
+    root: z.string().min(1).max(4096).nullable(),
+  }),
+  z.strictObject({
+    ok: z.literal(true),
+    type: z.literal('generated-assets.ensured'),
+    /** created / relinked / unchanged / missing (missing = cannot create). */
+    action: z.string().nullish(),
+    /** Linked folder id in the open library, when available. */
+    folderId: z.string().nullish(),
+    /** Non-fatal skip reason (e.g. no-library-open, not-configured). */
+    code: z.string().nullish(),
+  }),
+  z.strictObject({
+    ok: z.literal(true),
+    type: z.literal('generation.record.got'),
+    /** Host-side generation provenance for one asset; absent = no record. */
+    record: z
+      .strictObject({
+        taskId: z.string().nullish(),
+        kind: z.string().nullish(),
+        prompt: z.string().nullish(),
+        workflow: z.string().nullish(),
+        model: z.string().nullish(),
+        params: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+          .nullish(),
+        durationMs: z.number().nullish(),
+        createdAt: z.string().nullish(),
+        completedAt: z.string().nullish(),
+        engine: z.string().nullish(),
+      })
+      .optional(),
+  }),
+  z.strictObject({
+    ok: z.literal(true),
+    type: z.literal('generation.record.exported'),
+    /** true when the user dismissed the save dialog. */
+    canceled: z.boolean(),
+    /** Absolute path of the written file (when not canceled). */
+    filePath: z.string().min(1).max(4096).optional(),
+    /** Number of records exported. */
+    count: z.number().int().nonnegative(),
   }),
   z.strictObject({
     ok: z.literal(true),

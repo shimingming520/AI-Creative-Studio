@@ -144,6 +144,7 @@ const api = {
     list: () => electron.ipcRenderer.invoke("tasks:list"),
     interrupt: () => electron.ipcRenderer.invoke("tasks:interrupt"),
     cancel: (taskId) => electron.ipcRenderer.invoke("tasks:cancel", taskId),
+    remove: (taskId) => electron.ipcRenderer.invoke("tasks:remove", taskId),
     prepareMode: (mode) =>
       electron.ipcRenderer.invoke("tasks:prepare-mode", mode),
     onUpdate: (callback) => {
@@ -197,6 +198,16 @@ const api = {
     run: (request) => electron.ipcRenderer.invoke("local-comfy:run", request),
     cancel: (requestId) =>
       electron.ipcRenderer.invoke("local-comfy:cancel", requestId),
+  },
+  workflows: {
+    list: () => electron.ipcRenderer.invoke("workflows:list"),
+    inspect: (filePath) =>
+      electron.ipcRenderer.invoke("workflows:inspect", filePath),
+    validate: (filePath) =>
+      electron.ipcRenderer.invoke("workflows:validate", filePath),
+    run: (request) => electron.ipcRenderer.invoke("workflows:run", request),
+    cancel: (taskId) =>
+      electron.ipcRenderer.invoke("workflows:cancel", taskId),
   },
   tts: {
     status: () => electron.ipcRenderer.invoke("tts:status"),
@@ -359,6 +370,20 @@ const api = {
         electron.ipcRenderer.removeListener("canvas:remote-update", handler);
     },
     onCanvasSync: (_cb) => () => void 0,
+  },
+  serpent: {
+    status: () => electron.ipcRenderer.invoke("serpent:status"),
+    toggle: () => electron.ipcRenderer.invoke("serpent:toggle"),
+    show: () => electron.ipcRenderer.invoke("serpent:show"),
+    hide: () => electron.ipcRenderer.invoke("serpent:hide"),
+    reportLayout: (layout) =>
+      electron.ipcRenderer.invoke("serpent:report-layout", layout),
+    onStatus: (callback) => {
+      const listener = (_event, state) => callback(state);
+      electron.ipcRenderer.on("serpent:status-changed", listener);
+      return () =>
+        electron.ipcRenderer.removeListener("serpent:status-changed", listener);
+    },
   },
   autostart: {
     get: () => electron.ipcRenderer.invoke("autostart:get"),

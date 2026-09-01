@@ -6,6 +6,8 @@
  * treat those ids as a path prefix under the same linked root.
  */
 
+import path from "node:path";
+
 export const LINKED_VIRTUAL_FOLDER_PREFIX = "lfv:";
 
 export interface LinkedVirtualFolderRef {
@@ -38,6 +40,28 @@ export function parentLinkedRelativePath(relativePath: string): string | null {
   if (relativePath === "") return null;
   const slash = relativePath.lastIndexOf("/");
   return slash === -1 ? "" : relativePath.slice(0, slash);
+}
+
+/**
+ * POSIX-style relative path when `child` lives inside `root`; null otherwise
+ * (outside, same path, different drive, or a separator edge case). Used for
+ * reverse source-path lookups (生成记录) in the Worker.
+ */
+export function relativePathInside(
+  root: string,
+  child: string,
+): string | null {
+  const relative = path.relative(root, child);
+  if (
+    !relative ||
+    relative === "." ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    return null;
+  }
+  return relative.replaceAll("\\", "/");
 }
 
 export function linkedFolderDepth(relativePath: string): number {

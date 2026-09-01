@@ -328,7 +328,7 @@ import {
   buildActiveFilterChips,
   type ClearableFilterId,
 } from "./active-discovery-filters";
-import { resolveBrowseEmptyState, resolveImportMenuCopy } from "./browse-empty-state";
+import { resolveBrowseEmptyState, resolveImportMenuCopy, type OrganizationBrowseScope } from "./browse-empty-state";
 import { trashedFromLabel } from "./trashed-from-label";
 import {
   buildTrashBreadcrumbHops,
@@ -361,7 +361,13 @@ import type {
 } from "../shared/asset-types";
 import type { LibraryNavigationSummary } from "../shared/library-navigation";
 import { hasMeaningfulSmartCollectionCondition } from "../shared/smart-collection-query";
-import { expandFormatFilterTokens } from "../shared/text-media";
+import {
+  GENERATED_ASSET_KINDS,
+  generatedKindFilterClauses,
+  type GeneratedAssetKind,
+} from "../shared/generated-assets";
+import type { GenerationRecord } from "../shared/generation-record";
+import { normalizeFormatFilterTokens } from "../shared/text-media";
 import type {
   SerpentLibraryApi,
   LibraryApiResult,
@@ -480,6 +486,14 @@ import {
 const IS_MAC_PLATFORM = isMacPlatform(navigator.userAgent);
 const IS_WINDOWS_PLATFORM =
   resolveRendererPlatform(navigator.userAgent) === "windows";
+// Serpent hosted (SERPENT_HOSTED=1, e.g. YUH Studio「资源管理」): the host
+// window owns minimize / maximize / close, so the embedded renderer must not
+// draw its own caption buttons (or reserve their width). The host flags the
+// mode via ?serpentHosted=1 on the renderer URL; standalone Serpent never
+// passes it and keeps its frameless caption buttons.
+const IS_SERPENT_HOSTED =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("serpentHosted") === "1";
 
 const SHORTCUT_PLATFORM: CommandPlatform = IS_MAC_PLATFORM ? "mac" : "windows";
 const NETWORK_LIBRARY_RELOAD_INTERVAL_MS = 750;
@@ -646,6 +660,7 @@ function AppInner() {
 
   useEffect(() => {
     document.body.classList.toggle("platform-darwin", IS_MAC_PLATFORM);
+    document.body.classList.toggle("serpent-hosted", IS_SERPENT_HOSTED);
   }, []);
 
   useScrollbarActivity();
@@ -934,6 +949,24 @@ function AppInner() {
   >([]);
   const [activeSmartCollectionId, setActiveSmartCollectionId] = useState<
     string | null
+  >(null);
+
+  // 生成资产: Main-owned generation output root (hosted push / env) + the
+  // active media-kind row of the fixed sidebar section.
+  const [generatedAssetsRoot, setGeneratedAssetsRoot] = useState<string | null>(
+    null,
+  );
+  const [activeGeneratedKind, setActiveGeneratedKind] =
+    useState<GeneratedAssetKind | null>(null);
+  const [generatedAssetCounts, setGeneratedAssetCounts] = useState<
+    Record<GeneratedAssetKind, number> | null
+  >(null);
+  /** Bumped after asset mutations so the per-kind counts stay fresh. */
+  const [generatedCountsRefreshKey, setGeneratedCountsRefreshKey] =
+    useState(0);
+  /** 生成记录: provenance of the currently selected single asset. */
+  const [generationRecord, setGenerationRecord] = useState<
+    GenerationRecord | null
   >(null);
   const [searchValue, setSearchValue] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1947,7 +1980,9 @@ function AppInner() {
 
 
   const selectedFolderId =
-    assetScope === "all" || assetScope === "root" ? undefined : assetScope;
+    assetScope === "all" || assetScope === "root" || assetScope === "generated"
+      ? undefined
+      : assetScope;
   const selectedFolder = folders.find(
     (folder) => folder.folderId === selectedFolderId,
   );
@@ -2276,12 +2311,17 @@ function AppInner() {
     activeSmartCollectionId,
   ]);
 
-  const organizationBrowseScope = activeSmartCollectionId
-    ? ("smart-collection" as const)
-    : activeCollectionId
-      ? ("collection" as const)
-      : ("folder" as const);
-  const importMenuCopy = resolveImportMenuCopy(organizationBrowseScope);
+  const organizationBrowseScope: OrganizationBrowseScope =
+    activeSmartCollectionId
+      ? "smart-collection"
+      : activeCollectionId
+        ? "collection"
+        : assetScope === "generated"
+          ? "generated"
+          : "folder";
+  const importMenuCopy = resolveImportMenuCopy(
+    organizationBrowseScope === "generated" ? "folder" : organizationBrowseScope,
+  );
 
   const browseEmptyState = useMemo(() => {
     const discoverySnapshot = {
@@ -3184,6 +3224,159 @@ function AppInner() {
     return byParent;
   }, [collections]);
 
+  // 生成资产: the linked folder (import root) whose absolute root equals the
+  // configured generation output path. Only "available" roots qualify — the
+  // host keeps this link alive and the fs watcher indexes new outputs.
+  const generatedAssetsFolder = useMemo(() => {
+    if (!generatedAssetsRoot) return null;
+    const resolve = (value: string) => {
+      const normalized = value.replace(/[\\/]+$/u, "");
+      return IS_WINDOWS_PLATFORM ? normalized.toLowerCase() : normalized;
+    };
+    const root = resolve(generatedAssetsRoot);
+    return (
+      linkedFolders.find(
+        (folder) =>
+          folder.status === "available" &&
+          !folder.relativePath &&
+          resolve(folder.absoluteRootPath) === root,
+      ) ?? null
+    );
+  }, [generatedAssetsRoot, linkedFolders]);
+
+  const generatedAssetsSearchScope = useMemo<SearchScope | undefined>(
+    () =>
+      generatedAssetsFolder
+        ? {
+            kind: "folder",
+            folderId: generatedAssetsFolder.folderId,
+            recursive: true,
+          }
+        : undefined,
+    [generatedAssetsFolder],
+  );
+
+  // Root config is Main-owned (hosted push / env); refresh when the library
+  // or the linked-folder set changes so late linking is picked up lazily.
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    void api.getGeneratedAssetsRoot().then((result) => {
+      if (cancelled || !result.ok) return;
+      setGeneratedAssetsRoot((current) =>
+        current === result.value ? current : result.value,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, linkedFolders, library?.libraryId]);
+
+  // 生成资产 is app-level: when the output root is configured but the current
+  // library has no matching linked folder yet (new library, or the host
+  // hasn't synced), ask Main to ensure it — idempotent create/relink — so the
+  // fixed sidebar works with any library the user opens.
+  useEffect(() => {
+    if (!api || !library || !generatedAssetsRoot || generatedAssetsFolder) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api.ensureGeneratedAssetsLink().then((result) => {
+        if (cancelled || !result.ok) return;
+        // Link creation lands via asset.changed → navigation refresh; nudge
+        // the counts refresh so the rows populate as soon as it does.
+        setGeneratedCountsRefreshKey((key) => key + 1);
+      });
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [api, generatedAssetsFolder, generatedAssetsRoot, library?.libraryId]);
+
+  // Per-kind counts for the sidebar rows. Cheap COUNT queries (limit 1) on the
+  // same linked-folder scope; refreshed on folder/config changes and on asset
+  // mutations (throttled by the assetsChanged subscription below).
+  useEffect(() => {
+    if (!api || !library || !generatedAssetsFolder) {
+      setGeneratedAssetCounts(null);
+      return;
+    }
+    const libraryId = library.libraryId;
+    const folderId = generatedAssetsFolder.folderId;
+    let cancelled = false;
+    void Promise.all(
+      GENERATED_ASSET_KINDS.map(async (kind) => {
+        const result = await api.searchAssets({
+          libraryId,
+          query: null,
+          filters:
+            kind === "all" ? undefined : generatedKindFilterClauses(kind),
+          scope: { kind: "folder", folderId, recursive: true },
+          limit: 1,
+          offset: 0,
+          showIgnored: showIgnoredItems,
+        });
+        return [kind, result.ok ? result.value.total : 0] as const;
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setGeneratedAssetCounts(
+        Object.fromEntries(entries) as Record<GeneratedAssetKind, number>,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    api,
+    generatedAssetsFolder,
+    generatedCountsRefreshKey,
+    library,
+    showIgnoredItems,
+  ]);
+
+  useEffect(() => {
+    if (!api) return;
+    let timer: number | undefined;
+    const libraryId = library?.libraryId ?? null;
+    const unsubscribe = api.onAssetsChanged((event) => {
+      if (libraryId === null || event.libraryId !== libraryId) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        setGeneratedCountsRefreshKey((key) => key + 1);
+      }, 800);
+    });
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [api, library?.libraryId]);
+
+  // 生成记录: fetch the selected single asset's provenance (prompt/workflow/
+  // params/model/duration) whenever the selection or library changes.
+  useEffect(() => {
+    setGenerationRecord(null);
+    if (!api || !library || !selectedAssetId || selectedAssetIds.length !== 1) {
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getGenerationRecord({
+        libraryId: library.libraryId,
+        assetId: selectedAssetId,
+      })
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setGenerationRecord(result.value);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, library, selectedAssetId, selectedAssetIds.length]);
+
   const loadContent = useCallback(
     async (
       activeLibrary: RendererLibrarySummary,
@@ -3434,6 +3627,8 @@ function AppInner() {
     setTagFilter,
     setActiveCollectionId,
     setActiveSmartCollectionId,
+    generatedAssetsFolderId: generatedAssetsFolder?.folderId ?? null,
+    setActiveGeneratedKind,
     setAssets,
     setSearchTotal,
     beginBrowsePage,
@@ -3466,6 +3661,7 @@ function AppInner() {
     tags,
     activeCollectionId,
     activeSmartCollectionId,
+    activeGeneratedKind,
     assetScope,
   });
   usePendingRestoredAssetFocus({
@@ -4000,6 +4196,9 @@ function AppInner() {
       case "smart-collection":
         await chooseSmartCollection(location.collectionId);
         return;
+      case "generated":
+        await enterGeneratedAssets(location.mediaKind);
+        return;
       case "trash":
         await enterTrashAt(location.tombstoneId);
         return;
@@ -4470,6 +4669,7 @@ function AppInner() {
     setActiveTagId(null);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     clearDiscoveryControls();
     setSearchTotal(null);
     setSearchSnippets(new Map());
@@ -4521,6 +4721,98 @@ function AppInner() {
   }
   chooseFolderRef.current = chooseFolder;
 
+  /**
+   * 导出全部生成记录（JSON/CSV，原生保存对话框由主进程弹出）。格式按
+   * 用户选择的文件扩展名决定。
+   */
+  async function handleExportGenerationRecords() {
+    if (!api) return;
+    try {
+      const result = await api.exportGenerationRecords();
+      if (!result.ok) throw new LibraryOperationError(result.error);
+      if (result.value.canceled) return;
+      setNotice(
+        t("toast.generationRecordsExported", { count: result.value.count }),
+      );
+    } catch (caught) {
+      setError(
+        toMessage(
+          caught,
+          t("toast.generationRecordsExportFailed"),
+          locale,
+        ),
+      );
+    }
+  }
+
+  /**
+   * 生成资产: open the fixed sidebar section's media-kind row. The browse
+   * scope is the linked folder whose root equals the generation output path
+   * (recursive), narrowed by the kind's format filter. assetScope stays
+   * "generated" so the section highlight is unambiguous while the search
+   * box / pagination keep working on the same underlying session.
+   */
+  async function enterGeneratedAssets(kind: GeneratedAssetKind) {
+    if (!library) return;
+    const targetLibraryId = library.libraryId;
+    const viewSession = ensureLibraryView(targetLibraryId);
+    if (!viewSession) return;
+    managedImportTargetFolderIdRef.current = undefined;
+    await closeAssetPreview(false);
+    if (!isCurrentLibraryView(viewSession)) return;
+    closeContextMenu();
+    workspaceCanvasRef.current?.scrollTo({ top: 0, left: 0 });
+    setShowTrash(false);
+    setShowTagManagement(false);
+    setActivePluginSidebarViewId(null);
+    setActiveTagId(null);
+    setActiveCollectionId(null);
+    setActiveSmartCollectionId(null);
+    setAssetScope("generated");
+    setActiveGeneratedKind(kind);
+    clearAssetSelection();
+    clearDiscoveryControls();
+    setSearchTotal(null);
+    setSearchSnippets(new Map());
+    resetBrowsePagination();
+    setAssets([]);
+    const folder = generatedAssetsFolder;
+    if (!folder || folder.status !== "available") {
+      setActiveGeneratedKind(null);
+      setAssetScope("all");
+      setError(t("nav.generatedLinkedHint"));
+      return;
+    }
+    const filters = generatedKindFilterClauses(kind);
+    api?.setActiveContext(targetLibraryId);
+    setUiState("loading");
+    try {
+      await loadContent(
+        { ...library, libraryId: targetLibraryId },
+        "generated",
+        {
+          discovery: {
+            ...(filters.length > 0 ? { filters } : {}),
+            sort: { field: sortField, order: sortOrder },
+          },
+          searchScope: {
+            kind: "folder",
+            folderId: folder.folderId,
+            recursive: true,
+          },
+        },
+      );
+      if (!isCurrentLibraryView(viewSession)) return;
+      recordNavigation({ kind: "generated", mediaKind: kind });
+    } catch (caught) {
+      if (isCurrentLibraryView(viewSession)) {
+        setError(toMessage(caught, t("toast.readAssetsFailed"), locale));
+      }
+    } finally {
+      if (isCurrentLibraryView(viewSession)) setUiState("ready");
+    }
+  }
+
   async function enterTrash() {
     await enterTrashAt(null);
   }
@@ -4549,6 +4841,7 @@ function AppInner() {
     setActiveTagId(null);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     setSearchTotal(null);
     setSearchSnippets(new Map());
     resetBrowsePagination();
@@ -4593,6 +4886,7 @@ function AppInner() {
     setActiveTagId(null);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     setAssetScope("all");
     clearAssetSelection();
     clearDiscoveryControls();
@@ -4633,6 +4927,7 @@ function AppInner() {
     setActiveTagId(null);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     clearDiscoveryControls();
     setSearchTotal(null);
     setSearchSnippets(new Map());
@@ -4823,6 +5118,7 @@ function AppInner() {
     setActiveTagId(tagId);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     setAssetScope("all");
     clearAssetSelection();
     setTagFilter(tag.name);
@@ -5331,6 +5627,7 @@ function AppInner() {
     setActiveCollectionId(collectionId);
     setActiveTagId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
     setAssetScope("all");
     clearAssetSelection();
     clearDiscoveryControls();
@@ -5512,11 +5809,8 @@ function AppInner() {
       durationRange,
     };
     const filters: FilterClause[] = [];
-    const formats = expandFormatFilterTokens(
-      filtersState.formatFilter
-        .split(",")
-        .map((value) => value.trim().replace(/^\./, ""))
-        .filter(Boolean),
+    const formats = normalizeFormatFilterTokens(
+      filtersState.formatFilter.split(","),
     );
     const selectedTags = (overrides.tagFilter ?? filtersState.tagFilter)
       .split(",")
@@ -5685,6 +5979,7 @@ function AppInner() {
       };
     if (assetScope === "root")
       return { kind: "folder", folderId: null, recursive: false };
+    if (assetScope === "generated") return generatedAssetsSearchScope;
     if (assetScope !== "all")
       // REQ-FOLDER-009 / REQ-FILTER-012: folder search follows the same switch.
       return {
@@ -5717,8 +6012,24 @@ function AppInner() {
     const discovery = activeTagName
       ? currentQueryDefinition({ tagFilter: activeTagName })
       : currentQueryDefinition();
+    // 生成资产: reloads must keep the media-kind filter, otherwise an asset
+    // mutation (the fs watcher picking up a new output) would silently drop
+    // the 图像/视频/音频 row scope and show everything in the folder.
+    const generatedFilters =
+      assetScope === "generated" && activeGeneratedKind
+        ? generatedKindFilterClauses(activeGeneratedKind)
+        : [];
     await loadContent(library, assetScope, {
-      discovery,
+      discovery:
+        generatedFilters.length > 0
+          ? {
+              ...discovery,
+              filters: [
+                ...generatedFilters,
+                ...(discovery.filters ?? []),
+              ],
+            }
+          : discovery,
       searchScope: currentSearchScope(),
       blockingLibraryLoad: options?.blockingNavigation,
     });
@@ -6372,10 +6683,20 @@ function AppInner() {
     if (!api || !library) return;
     const requestGeneration = ++searchRequestGenerationRef.current;
     const searchScope = currentSearchScope();
+    // 生成资产: the media-kind filter is the row's semantic; user searches
+    // must stay within it (AND the kind's format filter).
+    const generatedFilters =
+      assetScope === "generated" && activeGeneratedKind
+        ? generatedKindFilterClauses(activeGeneratedKind)
+        : [];
+    const filters =
+      generatedFilters.length > 0
+        ? [...generatedFilters, ...(definition.filters ?? [])]
+        : definition.filters;
     const result = await api.openBrowseSession({
       libraryId: library.libraryId,
       query: definition.search ?? null,
-      filters: definition.filters,
+      filters,
       scope: searchScope,
       sort: definition.sort,
       // Serpent-87pd: first window only; scrollbar jumps fetch other offsets.
@@ -6397,7 +6718,7 @@ function AppInner() {
     registerBrowseSearchPage(beginBrowsePage, {
       libraryId: library.libraryId,
       query: definition.search ?? null,
-      filters: definition.filters,
+      filters,
       scope: searchScope,
       sort: definition.sort,
       showIgnored: showIgnoredItems,
@@ -6532,6 +6853,7 @@ function AppInner() {
       setActiveTagId(null);
       setActiveCollectionId(null);
       setActiveSmartCollectionId(collectionId);
+      setActiveGeneratedKind(null);
       setAssetScope("all");
       clearAssetSelection();
       clearDiscoveryControls();
@@ -7188,6 +7510,8 @@ function AppInner() {
     setActiveTagId(null);
     setActiveCollectionId(null);
     setActiveSmartCollectionId(null);
+    setActiveGeneratedKind(null);
+    setGeneratedAssetCounts(null);
     setSelectedFolderIds([]);
     setSelectedAssetId(undefined);
     setSelectedAssetIds([]);
@@ -9003,6 +9327,19 @@ function AppInner() {
     return shellBridge.onWindowFocusChanged(apply);
   }, []);
 
+  function generatedKindLabel(kind: GeneratedAssetKind): string {
+    const kindLabels: Record<GeneratedAssetKind, string> = {
+      all: t("nav.generatedAll"),
+      image: t("nav.generatedImage"),
+      video: t("nav.generatedVideo"),
+      audio: t("nav.generatedAudio"),
+      model: t("nav.generatedModel"),
+      document: t("nav.generatedDocument"),
+      other: t("nav.generatedOther"),
+    };
+    return kindLabels[kind];
+  }
+
   function workspaceTitle() {
     if (!library) return t("scope.workspace");
     if (showTagManagement) return t("scope.tagManagement");
@@ -9029,6 +9366,11 @@ function AppInner() {
       return smart
         ? t("scope.smartCollectionScope", { name: smart.name })
         : t("scope.smartCollections");
+    }
+    if (assetScope === "generated" && activeGeneratedKind) {
+      return t("scope.generatedKind", {
+        kind: generatedKindLabel(activeGeneratedKind),
+      });
     }
     if (assetScope === "all") return t("scope.allAssets");
     if (assetScope === "root") return t("scope.rootFolder");
@@ -10052,7 +10394,7 @@ function AppInner() {
                     : null,
                   assetScope,
                   folderTrail:
-                    assetScope !== "all" && assetScope !== "root"
+                    assetScope !== "all" && assetScope !== "root" && assetScope !== "generated"
                       ? buildManagedFolderBreadcrumbTrail(folders, assetScope)
                           .length > 0
                         ? buildManagedFolderBreadcrumbTrail(folders, assetScope)
@@ -10062,6 +10404,12 @@ function AppInner() {
                           )
                       : [],
                   linkedFolderLabel: null,
+                  generatedLabel:
+                    assetScope === "generated" && activeGeneratedKind
+                      ? t("scope.generatedKind", {
+                          kind: generatedKindLabel(activeGeneratedKind),
+                        })
+                      : null,
                 },
                 t,
               )}
@@ -10121,7 +10469,7 @@ function AppInner() {
             pressed={rightOpen}
           />
         </div>
-        {IS_WINDOWS_PLATFORM ? (
+        {IS_WINDOWS_PLATFORM && !IS_SERPENT_HOSTED ? (
           <WindowsWindowControls shell={shellApi} />
         ) : null}
       </header>
@@ -10147,6 +10495,16 @@ function AppInner() {
             });
           }
         }}
+        generatedAssetsRootConfigured={Boolean(generatedAssetsRoot)}
+        generatedAssetsFolderName={generatedAssetsFolder?.displayName ?? null}
+        generatedAssetsFolderOffline={
+          generatedAssetsFolder?.status === "offline"
+        }
+        generatedAssetCounts={generatedAssetCounts}
+        activeGeneratedKind={activeGeneratedKind}
+        onChooseGeneratedAssets={(kind) => void enterGeneratedAssets(kind)}
+        excludedLinkedFolderRootId={generatedAssetsFolder?.folderId ?? null}
+        onExportGenerationRecords={() => void handleExportGenerationRecords()}
         allAssetCount={allAssetCount}
         rootAssetCount={rootAssetCount}
         trashedAssetCount={trashedAssetCount}
@@ -10264,7 +10622,8 @@ function AppInner() {
               !activeCollectionId &&
               !activeSmartCollectionId &&
               assetScope !== "all" &&
-              assetScope !== "root" && (
+              assetScope !== "root" &&
+              assetScope !== "generated" && (
                 <button
                   aria-pressed={folderRecursive}
                   className="workspace-include-subfolders"
@@ -11740,6 +12099,7 @@ function AppInner() {
         selectedAssets={selectedAssets}
         multiEdit={multiEdit}
         versionConflict={versionConflict}
+        generationRecord={generationRecord}
         pluginApi={(window as RendererWindow).serpent?.plugins}
         libraryId={library?.libraryId}
         pluginContributionRefreshKey={pluginContributionRefreshKey}

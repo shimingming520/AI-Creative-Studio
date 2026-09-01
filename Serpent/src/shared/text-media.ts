@@ -124,15 +124,34 @@ export function textMimeForExtension(extension: string): string | null {
 }
 
 /**
- * Expand format-filter tokens for SQL. The special `text` token becomes every
- * known text/code extension (without a leading dot); other tokens pass through.
+ * Normalize format-filter tokens (trim, strip a leading dot, lowercase,
+ * de-duplicate) WITHOUT expanding the unified `text` group token. The Worker
+ * expands `text` when it builds the query, so sending the token as-is keeps
+ * the clause within the protocol's per-clause value cap; renderer-side
+ * expansion would enumerate every TEXT_EXTENSIONS entry (> 32 values) and be
+ * rejected by Main/Worker validation.
  */
-export function expandFormatFilterTokens(tokens: readonly string[]): string[] {
+export function normalizeFormatFilterTokens(tokens: readonly string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of tokens) {
     const token = raw.trim().replace(/^\./, "").toLowerCase();
-    if (!token) continue;
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
+}
+
+/**
+ * Expand format-filter tokens for SQL. The special `text` token becomes every
+ * known text/code extension (without a leading dot); other tokens pass through.
+ */
+export function expandFormatFilterTokens(tokens: readonly string[]): string[] {
+  const normalized = normalizeFormatFilterTokens(tokens);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const token of normalized) {
     if (token === FORMAT_TEXT_TOKEN) {
       for (const ext of TEXT_EXTENSIONS) {
         const bare = ext.slice(1);

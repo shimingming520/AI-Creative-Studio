@@ -29,6 +29,8 @@ export function buildScopeBreadcrumbSegments(
     assetScope: string;
     folderTrail: ManagedFolderBreadcrumbEntry[];
     linkedFolderLabel?: string | null;
+    /** 生成资产: full label of the active media-kind row (null when not active). */
+    generatedLabel?: string | null;
   },
   t: TranslateFn,
 ): ScopeBreadcrumbSegment[] {
@@ -80,6 +82,15 @@ export function buildScopeBreadcrumbSegments(
   }
   if (input.assetScope === "root") {
     return [{ kind: "static", id: "root", label: t("scope.rootFolder") }];
+  }
+  if (input.assetScope === "generated" && input.generatedLabel) {
+    return [
+      {
+        kind: "static",
+        id: "generated",
+        label: input.generatedLabel,
+      },
+    ];
   }
   if (input.folderTrail.length > 0) {
     return input.folderTrail.map((entry) => ({

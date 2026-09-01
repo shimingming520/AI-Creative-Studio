@@ -29,7 +29,7 @@ export function resolveExtensionActiveContextTarget(input: {
     return { libraryId: input.libraryId };
   }
 
-  if (input.assetScope === "all" || input.assetScope === "root") {
+  if (input.assetScope === "all" || input.assetScope === "root" || input.assetScope === "generated") {
     return { libraryId: input.libraryId };
   }
 

@@ -6,13 +6,15 @@ export type BrowseEmptyKind =
   | "trash"
   | "folder"
   | "collection"
-  | "smart-collection";
+  | "smart-collection"
+  | "generated";
 
 /** Organizational browse scope (excluding trash / discovery overlays). */
 export type OrganizationBrowseScope =
   | "folder"
   | "collection"
-  | "smart-collection";
+  | "smart-collection"
+  | "generated";
 
 export type BrowseEmptyState = {
   kind: BrowseEmptyKind;
@@ -76,6 +78,17 @@ export function resolveBrowseEmptyState(input: {
       detailKey: "empty.smartCollectionBody",
       showImportActions: false,
       icon: "smart",
+    };
+  }
+  if (input.organizationScope === "generated") {
+    // 生成资产: picks up files from the generation output path automatically —
+    // no import CTAs (the user never has to choose/import anything here).
+    return {
+      kind: "generated",
+      titleKey: "empty.generatedTitle",
+      detailKey: "empty.generatedBody",
+      showImportActions: false,
+      icon: "sparkles",
     };
   }
   if (input.organizationScope === "collection") {

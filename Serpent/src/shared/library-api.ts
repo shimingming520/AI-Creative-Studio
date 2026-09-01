@@ -1,5 +1,6 @@
 import type { PublicError, PublicErrorReason } from './protocol/errors';
 import type { LibraryNavigationSummary } from './library-navigation';
+import type { GenerationRecord } from './generation-record';
 
 /** Serpent-xffq：WebDAV 服务端能力探测结果。 */
 export interface SyncCapabilities {
@@ -215,6 +216,34 @@ export interface SerpentLibraryApi {
   openRecent(input: { path: string }): Promise<LibraryApiResult<RendererLibrarySummary>>;
   /** Remove a path from the recent list without deleting disk (Serpent-ucx). */
   forgetRecent(input: { path: string }): Promise<LibraryApiResult<{ path: string }>>;
+  /**
+   * Configured generation output root backing the fixed 「生成资产」 sidebar
+   * section (Main-owned: hosted host pushes it, or SERPENT_GENERATED_ASSETS_ROOT).
+   * null means the feature is not configured.
+   */
+  getGeneratedAssetsRoot(): Promise<LibraryApiResult<string | null>>;
+  /**
+   * 生成资产 is app-level: ensure the linked folder exists in the currently
+   * open library (idempotent create/relink to the configured output root).
+   * The renderer calls it when the sidebar sees the root configured but no
+   * matching linked folder yet — works for any library the user opens.
+   */
+  ensureGeneratedAssetsLink(): Promise<LibraryApiResult<{ action?: string | null; folderId?: string | null; code?: string | null }>>;
+  /**
+   * 生成记录: fetch one asset's generation provenance (prompt/workflow/
+   * params/model/duration) recorded by the host app. null = no record.
+   */
+  getGenerationRecord(input: {
+    libraryId: string;
+    assetId: string;
+  }): Promise<LibraryApiResult<GenerationRecord | null>>;
+  /**
+   * 生成记录导出: native save dialog (JSON or CSV by chosen extension) with
+   * every host-pushed generation record. canceled = user dismissed it.
+   */
+  exportGenerationRecords(): Promise<
+    LibraryApiResult<{ canceled: boolean; filePath?: string; count: number }>
+  >;
   close(input: { libraryId: string }): Promise<LibraryApiResult<{ libraryId: string }>>;
   rename(input: { libraryId: string; displayName: string }): Promise<LibraryApiResult<RendererLibrarySummary>>;
   /** Close then permanently delete the library root on disk (Serpent-9i8). */

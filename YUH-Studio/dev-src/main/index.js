@@ -47,9 +47,11 @@ const node_stream = require("node:stream");
 // Serpent's main module registers privileged schemes at require time.
 const serpentHost = require("../serpent-host");
 serpentHost.preload();
+const serpentSidebar = require("../serpent-sidebar");
 const promises$1 = require("node:stream/promises");
 const docx = require("docx");
 const node_module = require("node:module");
+const workflows = require("./workflows");
 let desiredOwner = null;
 let ownershipVersion = 0;
 function requestGpuOwnership(owner) {
@@ -99,7 +101,12 @@ function hasConfiguredComfyui(comfyuiDir) {
 }
 function getWorkspaceSettings() {
   try {
-    const parsed = JSON.parse(node_fs.readFileSync(settingsPath(), "utf8"));
+    // 原版应用写出的 workspace-settings.json 带 UTF-8 BOM，JSON.parse 会直接
+    // 抛 Unexpected token 并落入 catch 兜底（outputDir → 默认空目录），导致
+    // 「生成资产 / ComfyUI 输出」一直指向 userData/outputs 而不是配置路径。
+    let text = node_fs.readFileSync(settingsPath(), "utf8");
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    const parsed = JSON.parse(text);
     const modelsDir =
       typeof parsed.modelsDir === "string" ? parsed.modelsDir : "";
     const outputDir2 =
@@ -388,12 +395,12 @@ function outputDir() {
   node_fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
-async function downloadRemoteOutput(filename, subfolder) {
+async function downloadRemoteOutput(filename, subfolder, type = "output") {
   const host = getBackendHost();
   const params = new URLSearchParams({
     filename,
     subfolder: subfolder || "",
-    type: "output",
+    type,
   });
   const url = `${host}/view?${params.toString()}`;
   try {
@@ -409,12 +416,36 @@ async function downloadRemoteOutput(filename, subfolder) {
     return void 0;
   }
 }
-async function resolveOutputPath(filename, subfolder) {
+async function resolveOutputPath(filename, subfolder, type = "output") {
   if (isRemoteMode()) {
-    return downloadRemoteOutput(filename, subfolder);
+    return downloadRemoteOutput(filename, subfolder, type);
   }
-  const localPath = node_path.join(outputDir(), subfolder || "", filename);
-  return node_fs.existsSync(localPath) ? localPath : void 0;
+  // 优先输出目录；Preview 类（type=temp）文件在引擎临时目录或 ComfyUI 安装目录 temp/ 下，
+  // 按序探测（含外部 ComfyUI 安装目录），保证音频预览也能落地。
+  const candidates = [node_path.join(outputDir(), subfolder || "", filename)];
+  if (type === "temp" || String(subfolder || "").toLowerCase() === "temp") {
+    if (activeEngineDir) candidates.push(node_path.join(activeEngineDir, "temp", filename));
+    const settings = getWorkspaceSettings();
+    if (settings.comfyuiDir) candidates.push(node_path.join(settings.comfyuiDir, "temp", filename));
+    candidates.push(node_path.join(outputDir(), "temp", filename));
+  }
+  for (const candidate of candidates) {
+    if (node_fs.existsSync(candidate)) {
+      // 临时目录文件复制到输出目录，避免渲染器关闭引擎后文件丢失
+      if (!candidate.startsWith(outputDir())) {
+        try {
+          node_fs.mkdirSync(node_path.join(outputDir(), subfolder || ""), { recursive: true });
+          const target = node_path.join(outputDir(), subfolder || "", filename);
+          node_fs.copyFileSync(candidate, target);
+          return target;
+        } catch {
+          return candidate;
+        }
+      }
+      return candidate;
+    }
+  }
+  return void 0;
 }
 let remoteModelFiles = null;
 function setRemoteModelFiles(files) {
@@ -1582,6 +1613,7 @@ function ensureTasksLoaded() {
       if (!restored.outputPath || node_fs.existsSync(restored.outputPath))
         tasks.set(restored.id, restored);
     }
+    pushGenerationRecords();
   } catch {}
 }
 function persistTasks() {
@@ -1595,9 +1627,224 @@ function persistTasks() {
     tasks.delete(id);
   }
   getTaskHistoryStore().schedule(JSON.stringify(history, null, 2));
+  pushGenerationRecords();
 }
 async function flushTaskPersistence() {
   await taskHistoryStore?.flush();
+}
+
+// --- 生成记录 (generation provenance → Serpent 资源管理) ----------------------
+// 以「输出文件绝对路径 → 记录」组织：提示词/工作流/参数/模型/耗时等。
+// 任务历史（generation-history.json）已含全部成功任务，可随时重建记录；
+// 云端任务不经任务表，结果单独持久化到 generation-cloud-records.json。
+let cloudGenRecordStore;
+function getCloudGenRecordStore() {
+  cloudGenRecordStore ??= new DebouncedJsonStore(
+    node_path.join(electron.app.getPath("userData"), "generation-cloud-records.json"),
+    250,
+  );
+  return cloudGenRecordStore;
+}
+function loadCloudGenerationRecords() {
+  try {
+    const parsed = JSON.parse(
+      node_fs.readFileSync(
+        node_path.join(
+          electron.app.getPath("userData"),
+          "generation-cloud-records.json",
+        ),
+        "utf8",
+      ),
+    );
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function generationModelLabel(task) {
+  if (task.kind === "image") {
+    if (task.imageEngine === "zimage") return "Z-Image Turbo";
+    if (task.imageEngine === "krea2") return "Krea2";
+    return task.imageEngine || null;
+  }
+  if (task.kind === "video") {
+    if (task.providerId || task.model) return task.model || task.providerId || null;
+    const family = task.h3ModelFamily;
+    if (family === "ref2va") return "MiniMax H3 Ref2VA";
+    if (family === "fl2va") return "MiniMax H3 FL2VA (视频)";
+    return task.h3Model || null;
+  }
+  return task.model || task.providerModel || null;
+}
+function generationParamsFromTask(task) {
+  const params = {};
+  for (const key of [
+    "width",
+    "height",
+    "duration",
+    "seed",
+    "resolution",
+    "videoMode",
+    "steps",
+    "cfg",
+    "sampler",
+    "fps",
+    "quality",
+    "numFrames",
+  ]) {
+    if (task[key] !== void 0) params[key] = task[key];
+  }
+  if (task.loras && task.loras.length) params.loras = task.loras.join("、");
+  if (task.accelerationLoras && task.accelerationLoras.length)
+    params.accelerationLoras = task.accelerationLoras.join("、");
+  return params;
+}
+// --- 生成记录「任务类型」：音频六大类型 + 图像/视频类型 --------------------
+// 音频六类：语音生成 / 音色设计 / 音乐生成 / 音效生成 / 人声分离 / 语音转文本
+// 图像：文生图 / 图生图 / 图编辑；视频：文生视频 / 首尾帧 / 图生视频 / 全能参考 / 视频编辑
+const GENERATION_TASK_TYPE_LABELS = {
+  voice: "语音生成",
+  voiceDesign: "音色设计",
+  music: "音乐生成",
+  sfx: "音效生成",
+  vocalSplit: "人声分离",
+  asr: "语音转文本",
+  txt2img: "文生图",
+  img2img: "图生图",
+  edit: "图编辑",
+  text: "文生视频",
+  firstlast: "首尾帧",
+  image: "首尾帧",
+  img2video: "图生视频",
+  reference: "全能参考",
+  videoEdit: "视频编辑",
+};
+function generationTaskTypeLabel(taskType) {
+  return taskType ? GENERATION_TASK_TYPE_LABELS[taskType] || taskType : null;
+}
+// 工作流按 ComfyUI 目录结构归档时，可从路径第二段推断类型
+const WORKFLOW_TASK_TYPES_BY_FOLDER = {
+  语音生成: "voice",
+  音色设计: "voiceDesign",
+  文生音乐: "music",
+  文生音效: "sfx",
+  人声分离: "vocalSplit",
+  语音转文本: "asr",
+  文生图: "txt2img",
+  图生图: "img2img",
+  图编辑: "edit",
+};
+function inferTaskTypeFromWorkflowPath(path) {
+  if (!path) return null;
+  const normalized = String(path).replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  const folder = segments[segments.length - 2] || "";
+  if (WORKFLOW_TASK_TYPES_BY_FOLDER[folder]) return WORKFLOW_TASK_TYPES_BY_FOLDER[folder];
+  const name = segments[segments.length - 1] || "";
+  if (/音乐|music/i.test(name)) return "music";
+  if (/音效|woosh|sound|sfx|拟声/i.test(name)) return "sfx";
+  if (/人声|分离|vocal|stem|伴奏/i.test(name)) return "vocalSplit";
+  if (/转文本|转文字|ASR|字幕|transcri|语音识别/i.test(name)) return "asr";
+  if (/音色|voice.?design|声音设计/i.test(name)) return "voiceDesign";
+  if (/语音|tts|voxcpm|qwen3|voice|克隆/i.test(name)) return "voice";
+  if (/图生图|img2img/i.test(name)) return "img2img";
+  if (/图编辑|编辑/i.test(name)) return "edit";
+  if (/文生图|txt2img/i.test(name)) return "txt2img";
+  return null;
+}
+// 任务的「任务类型」：显式 taskType 优先，其次按类别 / 模式推断。
+function generationTaskType(task) {
+  if (typeof task.taskType === "string" && task.taskType.trim()) return task.taskType;
+  if (task.kind === "image") return task.kreaMode || "txt2img";
+  if (task.kind === "video") {
+    if (task.videoMode === "image") return "firstlast";
+    return task.videoMode || "text";
+  }
+  if (task.kind === "audio") return task.audioMode || "voice";
+  if (task.kind === "custom-workflow")
+    return inferTaskTypeFromWorkflowPath(task.workflowPath || task.workflowName);
+  return null;
+}
+function toGenerationRecord(task) {
+  const started = task.createdAt ? Date.parse(task.createdAt) : NaN;
+  const finished = task.updatedAt ? Date.parse(task.updatedAt) : NaN;
+  const params = generationParamsFromTask(task);
+  const taskType = generationTaskType(task);
+  const record = {
+    taskId: task.id || null,
+    kind: task.kind || null,
+    taskType: taskType || null,
+    taskTypeLabel: taskType ? generationTaskTypeLabel(taskType) : null,
+    prompt: task.prompt || null,
+    workflow: task.workflowName || null,
+    model: generationModelLabel(task),
+    params: Object.keys(params).length ? params : null,
+    durationMs:
+      Number.isFinite(started) && Number.isFinite(finished)
+        ? Math.max(0, finished - started)
+        : null,
+    createdAt: task.createdAt || null,
+    completedAt: task.updatedAt || null,
+    engine: task.providerId || task.providerModel ? "云端中转" : task.kind ? "本地引擎" : null,
+  };
+  return record;
+}
+function recordCloudGeneration(result, kind, taskType) {
+  if (!result) return;
+  const paths = Array.isArray(result.outputPaths)
+    ? result.outputPaths
+    : result.outputPath
+      ? [result.outputPath]
+      : [];
+  if (!paths.length) return;
+  const resolvedTaskType = taskType || result.taskType || null;
+  const record = {
+    taskId: result.id || null,
+    kind: kind || null,
+    taskType: resolvedTaskType,
+    taskTypeLabel: resolvedTaskType ? generationTaskTypeLabel(resolvedTaskType) : null,
+    prompt: result.prompt || null,
+    workflow: result.workflowName || null,
+    model: result.model || result.providerModel || null,
+    params: null,
+    durationMs: typeof result.elapsedMs === "number" ? result.elapsedMs : null,
+    createdAt: result.createdAt || /* @__PURE__ */ new Date().toISOString(),
+    completedAt: /* @__PURE__ */ new Date().toISOString(),
+    engine: result.providerId ? "云端中转" : "云端",
+  };
+  const store = loadCloudGenerationRecords();
+  for (const p of paths) store[node_path.resolve(p)] = record;
+  getCloudGenRecordStore().schedule(JSON.stringify(store, null, 2));
+  pushGenerationRecords();
+}
+function buildGenerationRecords() {
+  try {
+    ensureTasksLoaded();
+  } catch {}
+  const records = {};
+  for (const task of tasks.values()) {
+    if (task.status !== "succeeded") continue;
+    const paths = task.outputPaths && task.outputPaths.length
+      ? task.outputPaths
+      : task.outputPath
+        ? [task.outputPath]
+        : [];
+    if (!paths.length) continue;
+    const record = toGenerationRecord(task);
+    for (const p of paths) records[node_path.resolve(p)] = record;
+  }
+  const cloud = loadCloudGenerationRecords();
+  for (const [p, record] of Object.entries(cloud)) {
+    if (!records[p]) records[p] = record;
+  }
+  return records;
+}
+function pushGenerationRecords() {
+  try {
+    if (serpentHost && typeof serpentHost.setGeneratedAssetsRecords === "function") {
+      serpentHost.setGeneratedAssetsRecords(buildGenerationRecords());
+    }
+  } catch {}
 }
 function updateTask(id, update) {
   ensureTasksLoaded();
@@ -2856,20 +3103,28 @@ function restartBackend(onLog) {
   return backendRestartPromise;
 }
 async function finalizeFromHistory(taskId, record, onUpdate) {
-  const output = Object.values(record.outputs || {})
+  const outputCandidates = Object.values(record.outputs || {}).flatMap((item) => [
+    ...(Array.isArray(item?.images) ? item.images : []),
+    ...(Array.isArray(item?.videos) ? item.videos : []),
+    ...(Array.isArray(item?.gifs) ? item.gifs : []),
+    ...(Array.isArray(item?.audio) ? item.audio : []),
+    ...(Array.isArray(item?.files) ? item.files : []),
+    // easy saveText 等文本类输出以 filename/subfolder/type 形式出现在 text 键下
+    ...(Array.isArray(item?.text) ? item.text : []),
+  ]).filter((item) => item?.filename);
+  // 优先取“正式保存”的输出（save 类节点写在输出目录），Preview 类节点是 temp 预览，
+  // 其文件不在输出目录内；没有正式输出时再回退到预览（音频工作流可能只有预览节点）。
+  const output =
+    outputCandidates.find((item) => item.type !== "temp" && String(item.subfolder || "") !== "temp") ||
+    outputCandidates[0];
+  const outputItems = Object.values(record.outputs || {})
     .flatMap((item) => [
       ...(Array.isArray(item?.images) ? item.images : []),
       ...(Array.isArray(item?.videos) ? item.videos : []),
       ...(Array.isArray(item?.gifs) ? item.gifs : []),
       ...(Array.isArray(item?.audio) ? item.audio : []),
       ...(Array.isArray(item?.files) ? item.files : []),
-    ])
-    .find((item) => item?.filename);
-  const outputItems = Object.values(record.outputs || {})
-    .flatMap((item) => [
-      ...(Array.isArray(item?.images) ? item.images : []),
-      ...(Array.isArray(item?.videos) ? item.videos : []),
-      ...(Array.isArray(item?.gifs) ? item.gifs : []),
+      ...(Array.isArray(item?.text) ? item.text : []),
     ])
     .filter((item) => item?.filename);
   const outputPaths = (
@@ -2879,11 +3134,30 @@ async function finalizeFromHistory(taskId, record, onUpdate) {
       ),
     )
   ).filter((item) => Boolean(item));
-  const outputPath =
+  let outputPath =
     outputPaths[0] ||
     (output
-      ? await resolveOutputPath(output.filename, output.subfolder || "")
+      ? await resolveOutputPath(output.filename, output.subfolder || "", output.type || "output")
       : void 0);
+  // 语音转文本等文本类输出：历史记录里只有字符串文本（无文件名），落盘为 txt 供结果卡片引用
+  const textStrings = Object.values(record.outputs || {}).flatMap((item) => {
+    const text2 = item?.text;
+    if (typeof text2 === "string") return [text2];
+    if (Array.isArray(text2)) return text2.filter((entry) => typeof entry === "string");
+    return [];
+  });
+  if (!outputPath && textStrings.length) {
+    const task2 = tasks.get(taskId);
+    const baseName = String(task2?.workflowName || "transcript")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[\\/:*?"<>|]+/g, "_");
+    const dir = node_path.join(outputDir(), "h3-transcripts");
+    node_fs.mkdirSync(dir, { recursive: true });
+    const filePath = node_path.join(dir, `${baseName}_${Date.now()}.txt`);
+    node_fs.writeFileSync(filePath, textStrings.join("\n\n"), "utf8");
+    outputPath = filePath;
+    outputPaths = [filePath];
+  }
   const finished = updateTask(taskId, {
     status: "succeeded",
     progress: 100,
@@ -3615,6 +3889,11 @@ async function createGeneration(request, onUpdate) {
     duration: request.duration,
     seed,
     kind: "video",
+    videoMode: request.videoMode || "text",
+    taskType:
+      typeof request.taskType === "string" && request.taskType.trim()
+        ? request.taskType
+        : void 0,
   };
   tasks.set(localId, task);
   persistTasks();
@@ -3717,6 +3996,11 @@ async function createImageGeneration(request, onUpdate) {
     seed,
     kind: "image",
     resolution: request.resolution,
+    kreaMode: request.kreaMode || "txt2img",
+    taskType:
+      typeof request.taskType === "string" && request.taskType.trim()
+        ? request.taskType
+        : void 0,
   };
   tasks.set(localId, task);
   persistTasks();
@@ -11098,7 +11382,11 @@ function registerSharingHandlers() {
       }),
     // workspace
     "workspace:get": () => getWorkspaceSettings(),
-    "workspace:save": (input) => saveWorkspaceSettings(input),
+    "workspace:save": (input) => {
+      const settings = saveWorkspaceSettings(input);
+      void serpentHost.ensureComfyuiOutputLink(settings.outputDir);
+      return settings;
+    },
     // tasks
     "tasks:create": (req) =>
       createGeneration(req, (task) => send2("tasks:update", task)),
@@ -12279,18 +12567,39 @@ function registerAiProviderIpc() {
     discoverModels(id),
   );
   electron.ipcMain.handle("cloud-images:generate", (_event, request) =>
-    generateCloudImage(request),
+    generateCloudImage(request).then((result) => {
+      recordCloudGeneration(
+        result,
+        "image",
+        request?.taskType ||
+          (request?.references && request.references.length ? "img2img" : "txt2img"),
+      );
+      return result;
+    }),
   );
   electron.ipcMain.handle("cloud-videos:generate", (event, request) => {
     const cancel = new AbortController();
     const onSenderGone = () => cancel.abort();
     event.sender.once("destroyed", onSenderGone);
-    return generateCloudVideo(request, cancel.signal).finally(() => {
-      event.sender.removeListener("destroyed", onSenderGone);
-    });
+    return generateCloudVideo(request, cancel.signal)
+      .then((result) => {
+        recordCloudGeneration(
+          result,
+          "video",
+          request?.taskType ||
+            (request?.references && request.references.length ? "img2video" : "text"),
+        );
+        return result;
+      })
+      .finally(() => {
+        event.sender.removeListener("destroyed", onSenderGone);
+      });
   });
   electron.ipcMain.handle("cloud-audios:generate", (_event, request) =>
-    generateCloudAudio(request),
+    generateCloudAudio(request).then((result) => {
+      recordCloudGeneration(result, "audio", request?.taskType || "voice");
+      return result;
+    }),
   );
   electron.ipcMain.handle("cloud-audios:transcribe", (_event, request) =>
     transcribeWhisper(request),
@@ -12469,15 +12778,351 @@ function registerBackendIpc() {
   electron.ipcMain.handle("tasks:cancel", (_event, taskId) =>
     cancelSingleTask(taskId, (task) => send("tasks:update", task)),
   );
+  electron.ipcMain.handle("tasks:remove", (_event, taskId) => {
+    const task = tasks.get(taskId);
+    if (
+      task &&
+      (task.status === "queued" || task.status === "running")
+    ) {
+      throw new Error("任务运行中，请先停止再删除");
+    }
+    tasks.delete(taskId);
+    persistTasks();
+    return true;
+  });
   electron.ipcMain.handle("tasks:prepare-mode", (_event, mode) =>
     prepareLocalMode(mode, (task) => send("tasks:update", task)),
   );
 }
+function listCustomWorkflows() {
+  return workflows.listWorkflows(getWorkspaceSettings().comfyuiDir || "");
+}
+
+function inspectCustomWorkflowFile(filePath) {
+  const info = workflows.inspectWorkflow(filePath);
+  return {
+    path: filePath,
+    format: info.format,
+    nodeCount: info.nodeCount,
+    skippedNodes: info.skippedNodes,
+    warnings: info.warnings,
+    nodeTypes: info.nodeTypes,
+    slots: info.slots,
+    slotValues: info.slotValues,
+    modelSlots: info.modelSlots,
+    fileSlots: info.fileSlots,
+    outputNodes: info.outputNodes,
+    textSlots: info.textSlots || [],
+    isAudioGraph: Boolean(info.isAudioGraph),
+  };
+}
+
+async function validateCustomWorkflowFile(filePath) {
+  const info = workflows.inspectWorkflow(filePath);
+  if (!info.nodeCount) {
+    return {
+      path: filePath,
+      backendReachable: true,
+      nodeIssues: [
+        { classType: "", message: "工作流中没有可用节点（可能全部被禁用/旁路）" },
+      ],
+      modelSlots: [],
+    };
+  }
+  const graph = workflows.pruneUnreachable(info.api);
+  const validation = await workflows.validateAgainstBackend(
+    getBackendHost(),
+    graph,
+    info.modelSlots,
+  );
+  return {
+    path: filePath,
+    backendReachable: validation.backendReachable,
+    nodeIssues: validation.nodeIssues,
+    modelSlots: (validation.modelIssues || []).map((item) => ({
+      nodeId: item.nodeId,
+      input: item.input,
+      nodeTitle: item.nodeTitle,
+      value: item.value,
+      found: item.found,
+      folder: item.folder,
+      candidates: item.candidates || [],
+    })),
+  };
+}
+
+async function runCustomWorkflowTask(request, onUpdate) {
+  ensureTasksLoaded();
+  if (!(await isHealthy())) throw new Error("本地 H3 引擎尚未就绪");
+  if (!request?.path) throw new Error("未选择工作流文件");
+  const busy = [...tasks.values()].some(
+    (task) =>
+      task.kind === "custom-workflow" &&
+      (task.status === "queued" || task.status === "running"),
+  );
+  if (busy) throw new Error("已有自定义工作流任务在运行，请等待完成");
+  const info = workflows.inspectWorkflow(request.path);
+  if (!info.nodeCount)
+    throw new Error("工作流中没有可用节点（可能全部被禁用）");
+  let graph = workflows.pruneUnreachable(info.api);
+  const seed = request.randomizeSeed
+    ? Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+    : request.seed;
+  graph = workflows.applyOverrides(graph, info.slots, {
+    prompt: typeof request.prompt === "string" ? request.prompt : void 0,
+    width: request.width,
+    height: request.height,
+    length: request.length,
+    duration: typeof request.duration === "number" ? request.duration : void 0,
+    steps: request.steps,
+    cfg: request.cfg,
+    fps: request.fps,
+    seed,
+    modelFiles: request.modelFiles || {},
+    textOverrides: request.textOverrides || {},
+  });
+  // 模型文件槽位按文件名重映射为当前引擎候选名，避免提交时 value_not_in_list
+  graph = await workflows.remapModelValues(graph, info.modelSlots, getBackendHost());
+  // 补齐转换时丢失的必填组件（如 easy 节点的 download_from），避免提交 400
+  graph = await workflows.completeRequiredInputs(graph, info.raw, getBackendHost());
+  const localId = node_crypto.randomUUID();
+  const references = (request.files || []).map((item) => ({
+    path: item.path,
+    name: node_path.basename(item.path),
+    kind: item.kind || kindFor(item.path),
+  }));
+  const uploaded = [];
+  for (const reference of references) {
+    const uploadedName = await uploadReference(reference, `h3-custom/${localId}`);
+    uploaded.push({ kind: reference.kind, name: uploadedName });
+  }
+  graph = workflows.assignUploadedFiles(graph, info.fileSlots, uploaded);
+  const now = /* @__PURE__ */ new Date().toISOString();
+  const task = {
+    id: localId,
+    kind: "custom-workflow",
+    workflowName: node_path.basename(request.path),
+    workflowPath: request.path,
+    prompt: String(request.prompt || info.slotValues.prompt || ""),
+    status: "queued",
+    progress: 4,
+    createdAt: now,
+    updatedAt: now,
+    width: request.width,
+    height: request.height,
+    duration: request.duration,
+    seed,
+    taskType:
+      typeof request.taskType === "string" && request.taskType.trim()
+        ? request.taskType
+        : inferTaskTypeFromWorkflowPath(request.path),
+  };
+  tasks.set(localId, task);
+  persistTasks();
+  onUpdate(task);
+  try {
+    const queued = await requestJson("/prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: graph, client_id: localId }),
+    });
+    if (!queued.prompt_id)
+      throw new Error(
+        `任务提交失败：${JSON.stringify(queued.error || "未知错误")}`,
+      );
+    const running = updateTask(localId, {
+      backendPromptId: queued.prompt_id,
+      status: "running",
+      progress: 12,
+      error: void 0,
+    });
+    await flushTaskPersistence();
+    onUpdate(running);
+    void pollCustomWorkflowTask(localId, queued.prompt_id, onUpdate);
+    return running;
+  } catch (error) {
+    const cancelled = tasks.get(localId);
+    if (cancelled?.status === "cancelled") return cancelled;
+    const failed = updateTask(localId, {
+      status: "failed",
+      progress: 0,
+      error: error instanceof Error ? error.message : "工作流提交失败",
+    });
+    onUpdate(failed);
+    throw error;
+  }
+}
+
+async function pollCustomWorkflowTask(taskId, promptId, onUpdate) {
+  let progress = 12;
+  let failures = 0;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  try {
+    for (;;) {
+      const current = tasks.get(taskId);
+      if (!current || current.status === "cancelled") return;
+      if (current.status !== "queued" && current.status !== "running") return;
+      let record;
+      try {
+        const history = await requestJson(`/history/${promptId}`);
+        record = history[promptId];
+        failures = 0;
+      } catch (error) {
+        failures += 1;
+        if (failures < 4) {
+          await sleep(2500);
+          continue;
+        }
+        if (isEngineProcessAlive()) {
+          failures = 0;
+          onUpdate(
+            updateTask(taskId, {
+              status: "running",
+              progress,
+              backendPromptId: promptId,
+              error: "引擎计算繁忙，等待真实队列响应…",
+            }),
+          );
+          await sleep(5000);
+          continue;
+        }
+        throw new Error("引擎连接中断，任务已停止");
+      }
+      if (record) {
+        const statusText = record.status?.status_str;
+        if (statusText === "error") {
+          const messages = record.status?.messages || [];
+          const executionError = messages.find(
+            (item) => item?.[0] === "execution_error",
+          );
+          throw new Error(
+            executionError?.[1]?.exception_message || "工作流执行失败",
+          );
+        }
+        if (record.status?.completed) {
+          onUpdate(
+            updateTask(taskId, {
+              status: "running",
+              progress: 97,
+              backendPromptId: promptId,
+              error: void 0,
+            }),
+          );
+          await finalizeFromHistory(taskId, record, onUpdate);
+          return;
+        }
+      }
+      const queueState = await promptQueueState(promptId).catch(
+        () => "unreachable",
+      );
+      if (queueState === "unreachable" || queueState === "missing") {
+        failures += 1;
+        if (queueState === "missing" && failures >= 3) {
+          if (isEngineProcessAlive()) continue;
+          throw new Error("任务不在执行队列中，引擎连接已中断");
+        }
+        if (queueState === "unreachable" && failures >= 4) {
+          if (isEngineProcessAlive()) {
+            failures = 0;
+            onUpdate(
+              updateTask(taskId, {
+                status: "running",
+                progress,
+                backendPromptId: promptId,
+                error: "引擎计算繁忙，等待真实队列响应…",
+              }),
+            );
+            await sleep(5000);
+            continue;
+          }
+          throw new Error("引擎连接中断，任务已停止");
+        }
+        await sleep(2500);
+        continue;
+      }
+      failures = 0;
+      if (queueState === "pending") {
+        onUpdate(
+          updateTask(taskId, {
+            status: "queued",
+            progress: Math.max(progress, 8),
+            backendPromptId: promptId,
+            error: void 0,
+          }),
+        );
+      } else {
+        progress = Math.max(progress, 32);
+        onUpdate(
+          updateTask(taskId, {
+            status: "running",
+            progress,
+            backendPromptId: promptId,
+            error: void 0,
+          }),
+        );
+      }
+      await sleep(2500);
+    }
+  } catch (error) {
+    const current = tasks.get(taskId);
+    if (current?.status === "cancelled") return;
+    onUpdate(
+      updateTask(taskId, {
+        status: "failed",
+        progress: 0,
+        error: error instanceof Error ? error.message : "工作流执行失败",
+      }),
+    );
+  }
+}
+
+async function cancelCustomWorkflowTask(taskId) {
+  const task = tasks.get(taskId);
+  if (!task || task.kind !== "custom-workflow") return false;
+  if (task.status === "queued" || task.status === "running") {
+    if (task.backendPromptId) {
+      await fetch(`${getBackendHost()}/queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delete: [task.backendPromptId] }),
+      }).catch(() => void 0);
+      await fetch(`${getBackendHost()}/interrupt`, {
+        method: "POST",
+      }).catch(() => void 0);
+    }
+  }
+  const cancelled = updateTask(taskId, {
+    status: "cancelled",
+    progress: 0,
+    error: void 0,
+  });
+  send("tasks:update", cancelled);
+  return true;
+}
+
+function registerWorkflowsIpc() {
+  electron.ipcMain.handle("workflows:list", () => listCustomWorkflows());
+  electron.ipcMain.handle("workflows:inspect", (_event, filePath) =>
+    inspectCustomWorkflowFile(filePath),
+  );
+  electron.ipcMain.handle("workflows:validate", (_event, filePath) =>
+    validateCustomWorkflowFile(filePath),
+  );
+  electron.ipcMain.handle("workflows:run", (_event, request) =>
+    runCustomWorkflowTask(request, (task) => send("tasks:update", task)),
+  );
+  electron.ipcMain.handle("workflows:cancel", (_event, taskId) =>
+    cancelCustomWorkflowTask(taskId),
+  );
+}
 function registerWorkspaceSystemIpc() {
   electron.ipcMain.handle("workspace:get", () => getWorkspaceSettings());
-  electron.ipcMain.handle("workspace:save", (_event, input) =>
-    saveWorkspaceSettings(input),
-  );
+  electron.ipcMain.handle("workspace:save", (_event, input) => {
+    const settings = saveWorkspaceSettings(input);
+    // 输出路径配置变化后，同步 Serpent 资源管理里的「ComfyUI 输出」链接。
+    void serpentHost.ensureComfyuiOutputLink(settings.outputDir);
+    return settings;
+  });
   electron.ipcMain.handle(
     "workspace:pick-directory",
     async (_event, kind, currentPath) => {
@@ -13132,6 +13777,11 @@ function createWindow() {
     const legacyRendererIndex = node_path.join(__dirname, "../renderer/index.html");
     void mainWindow2.loadFile(legacyRendererIndex);
   }
+  // 首屏完成后：注入 Serpent 侧边栏“资源管理”入口（legacy UI 与 TSX UI 均注入，
+  // 注入脚本会等 .left-rail nav 出现才插入按钮）。
+  mainWindow2.webContents.on("did-finish-load", () => {
+    serpentSidebar.inject(mainWindow2.webContents);
+  });
 }
 function registerIpc() {
   registerFileIpc();
@@ -13149,6 +13799,43 @@ function registerIpc() {
   registerCloseBehaviorIpc();
   registerRunningHubIpc();
   registerLocalComfyIpc();
+  registerWorkflowsIpc();
+  registerSerpentIpc();
+}
+function registerSerpentIpc() {
+  electron.ipcMain.handle("serpent:status", () => serpentHost.getState());
+  electron.ipcMain.handle("serpent:toggle", async () => {
+    // 侧栏「资源管理」按钮走 toggle；显示后必须同步输出链接，否则
+    // 「生成资产 / ComfyUI 输出」会停留在旧路径（用户改过输出目录也不生效）。
+    const visible = await serpentHost.toggle();
+    if (visible) {
+      void serpentHost.ensureComfyuiOutputLink(outputDir());
+    }
+    return visible;
+  });
+  electron.ipcMain.handle("serpent:show", async () => {
+    const ok = await serpentHost.show();
+    if (ok) {
+      // 打开资源管理时同步「ComfyUI 输出」链接文件夹（无副作用：幂等）。
+      void serpentHost.ensureComfyuiOutputLink(outputDir());
+    }
+    return ok;
+  });
+  electron.ipcMain.handle("serpent:hide", () => serpentHost.hide());
+  electron.ipcMain.handle("serpent:report-layout", (_event, layout) => {
+    serpentHost.setRailWidthPx(
+      layout && layout.railWidth,
+      layout && layout.railLeft,
+      layout && layout.bodyTop,
+    );
+    return true;
+  });
+  serpentHost.onState((state) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("serpent:status-changed", state);
+    }
+  });
 }
 if (process.argv.includes("--hidden")) {
   process.env.YUNHUI_AUTOSTART = "1";
@@ -13170,8 +13857,14 @@ electron.app.whenReady().then(() => {
   });
   if (process.env.YUNHUI_AUTOSTART === "1") ensureTray();
   createWindow();
-  if (serpentHost.enabled()) {
-    void serpentHost.mount();
+  // 启动即推送生成记录（Serpent 资源管理可追溯 prompt/参数/模型/耗时）。
+  try {
+    pushGenerationRecords();
+  } catch {}
+  // Serpent 默认按需挂载：侧边栏“资源管理”入口点击后再显示嵌入视图。
+  // 保留 YUH_SERPENT_AUTOMOUNT=1 以支持旧自动挂载 / smoke 验证路径。
+  if (serpentHost.enabled() && process.env.YUH_SERPENT_AUTOMOUNT === "1") {
+    void serpentHost.show();
   }
   try {
     if (readAutoStartSettings().autoShare) {

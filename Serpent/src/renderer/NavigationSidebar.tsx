@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -14,6 +15,7 @@ import {
 } from "./availability-affordance";
 import { useT } from "./i18n";
 import { isImeKeyboardEvent, shouldHoldDismissForIme } from "./ime-safe-dismiss";
+import type { GeneratedAssetKind } from "../shared/generated-assets";
 import type {
   CollectionSummary,
   LinkedFolderSummary,
@@ -52,6 +54,7 @@ import {
 } from "./unified-directory-nav";
 import {
   isAllAssetsNavActive,
+  isGeneratedAssetsNavActive,
   isManagedFolderNavActive,
   isPluginSidebarViewNavActive,
   isRootFolderNavActive,
@@ -478,6 +481,8 @@ function Section({
   toggleLabel,
   secondaryAction,
   secondaryLabel,
+  tertiaryAction,
+  tertiaryLabel,
   children,
 }: {
   title: string;
@@ -489,16 +494,21 @@ function Section({
   toggleLabel?: string;
   secondaryAction?: () => void;
   secondaryLabel?: string;
+  /** Extra action rendered with the download icon (e.g. 导出生成记录). */
+  tertiaryAction?: () => void;
+  tertiaryLabel?: string;
   children: ReactNode;
 }) {
   const t = useT();
   const primaryLabel = actionLabel ?? t("nav.addSection", { title });
   const linkLabel = secondaryLabel ?? t("nav.secondaryAction", { title });
+  const downloadLabel =
+    tertiaryLabel ?? t("nav.exportSection", { title });
   return (
     <section className="nav-section">
       <div className="nav-section-heading">
         <span>{title}</span>
-        {(action || secondaryAction || toggleAction) && (
+        {(action || secondaryAction || toggleAction || tertiaryAction) && (
           <span className="nav-section-actions">
             {toggleAction && (
               <IconActionButton
@@ -519,6 +529,13 @@ function Section({
                 icon="link"
                 label={linkLabel}
                 onClick={secondaryAction}
+              />
+            )}
+            {tertiaryAction && (
+              <IconActionButton
+                icon="download"
+                label={downloadLabel}
+                onClick={tertiaryAction}
               />
             )}
           </span>
@@ -548,6 +565,27 @@ export interface NavigationSidebarProps {
   activeSmartCollectionId: string | null;
   showIgnoredItems: boolean;
   onToggleShowIgnoredItems: () => void;
+
+  // --- 生成资产 (fixed generated-assets section) ---
+  /** Main-side config: a generation output root is known (hosted push/env). */
+  generatedAssetsRootConfigured?: boolean;
+  /** Display name of the linked folder whose root is the generation output. */
+  generatedAssetsFolderName?: string | null;
+  /** Matched linked folder is offline (rows are hidden until relinked). */
+  generatedAssetsFolderOffline?: boolean;
+  /** Per-kind asset counts (all/image/video/audio/other); null = not loaded. */
+  generatedAssetCounts?: Record<GeneratedAssetKind, number> | null;
+  /** Currently active generated-media row; null = not in the generated scope. */
+  activeGeneratedKind?: GeneratedAssetKind | null;
+  onChooseGeneratedAssets?: (kind: GeneratedAssetKind) => void;
+  /**
+   * Linked-folder root id that owns the 生成资产 section — its root row AND
+   * virtual children are hidden from the 文件夹 tree so the fixed section is
+   * the single representation of the generation output path.
+   */
+  excludedLinkedFolderRootId?: string | null;
+  /** Export every host-side generation record (JSON/CSV via Main). */
+  onExportGenerationRecords?: () => void;
 
   // --- Data ---
   allAssetCount: number;
@@ -696,6 +734,14 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     activeSmartCollectionId,
     showIgnoredItems,
     onToggleShowIgnoredItems,
+    generatedAssetsRootConfigured = false,
+    generatedAssetsFolderName = null,
+    generatedAssetsFolderOffline = false,
+    generatedAssetCounts = null,
+    activeGeneratedKind = null,
+    onChooseGeneratedAssets,
+    excludedLinkedFolderRootId = null,
+    onExportGenerationRecords,
     allAssetCount,
     rootAssetCount,
     trashedAssetCount,
@@ -764,6 +810,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     activeTagId,
     activeCollectionId,
     activeSmartCollectionId,
+    activeGeneratedKind,
   };
 
   // REQ-DND-001/002: which row is the current asset-drag hover target.
@@ -962,12 +1009,25 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     };
   }
 
+  // 生成资产 owns the generation output linked folder: exclude its root row
+  // and virtual children from the 文件夹 tree so the fixed section is the
+  // single entry point (user asked: not under the folders level).
+  const sidebarLinkedFolders = useMemo(
+    () =>
+      excludedLinkedFolderRootId
+        ? linkedFolders.filter(
+            (folder) => folder.linkedFolderId !== excludedLinkedFolderRootId,
+          )
+        : linkedFolders,
+    [excludedLinkedFolderRootId, linkedFolders],
+  );
+
   const directoryEntries = filterCollapsedDirectoryEntries(
-    buildUnifiedDirectoryNavEntries(folders, linkedFolders),
+    buildUnifiedDirectoryNavEntries(folders, sidebarLinkedFolders),
     collapsedFolderIds,
   );
   const foldersWithChildren = managedFolderIdsWithChildren(
-    buildUnifiedDirectoryNavEntries(folders, linkedFolders),
+    buildUnifiedDirectoryNavEntries(folders, sidebarLinkedFolders),
   );
 
   function renderDirectoryEntries(): ReactNode {
@@ -1055,7 +1115,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
         );
       }
 
-      const lf = linkedFolders.find(
+      const lf = sidebarLinkedFolders.find(
         (folder) => folder.folderId === entry.folderId,
       );
       if (!lf) return null;
@@ -1474,6 +1534,52 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     return rows;
   }
 
+  // --------------------------------------------------------------------
+  // 生成资产 — fixed sidebar section
+  // Backed by the linked folder whose root equals the generation output path
+  // (the host keeps that link in place; see ensureComfyuiOutputLink). Rows are
+  // grouped by media kind; each opens the same linked-folder scope plus the
+  // kind's format filter. Hidden entirely when the feature is not configured.
+  // --------------------------------------------------------------------
+  function renderGeneratedAssetsRows(): ReactNode {
+    if (library === null) {
+      return <p className="nav-empty">{t("nav.generatedOpenLibraryHint")}</p>;
+    }
+    if (!generatedAssetsFolderName) {
+      return <p className="nav-empty">{t("nav.generatedLinkedHint")}</p>;
+    }
+    if (generatedAssetsFolderOffline) {
+      return <p className="nav-empty">{t("nav.linkedFolderOffline")}</p>;
+    }
+    const rows: Array<{
+      kind: GeneratedAssetKind;
+      icon: IconName;
+      label: string;
+    }> = [
+      { kind: "all", icon: "sparkles", label: t("nav.generatedAll") },
+      { kind: "image", icon: "image", label: t("nav.generatedImage") },
+      { kind: "video", icon: "video", label: t("nav.generatedVideo") },
+      { kind: "audio", icon: "music", label: t("nav.generatedAudio") },
+      { kind: "model", icon: "box", label: t("nav.generatedModel") },
+      { kind: "document", icon: "file", label: t("nav.generatedDocument") },
+      { kind: "other", icon: "file", label: t("nav.generatedOther") },
+    ];
+    return (
+      <>
+        {rows.map((row) => (
+          <NavRow
+            active={isGeneratedAssetsNavActive(browseNavFlags, row.kind)}
+            count={generatedAssetCounts?.[row.kind]}
+            icon={row.icon}
+            key={row.kind}
+            label={row.label}
+            onClick={() => onChooseGeneratedAssets?.(row.kind)}
+          />
+        ))}
+      </>
+    );
+  }
+
   return (
     <PaneSurface
       className="navigation-pane"
@@ -1602,6 +1708,15 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
             onClick={() => onChoosePluginSidebarView?.(view.id)}
           />
         ))}
+        {generatedAssetsRootConfigured ? (
+          <Section
+            title={t("nav.generatedAssets")}
+            tertiaryAction={onExportGenerationRecords}
+            tertiaryLabel={t("nav.exportGenerationRecords")}
+          >
+            {renderGeneratedAssetsRows()}
+          </Section>
+        ) : null}
         <Section
           title={t("nav.folders")}
           action={library ? onAddFolder : undefined}

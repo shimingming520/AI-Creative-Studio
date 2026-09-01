@@ -68,8 +68,12 @@ export function useAssetDragDropHandlers({
       const resolution = resolveFolderDrop({
         targetFolderId,
         // The root row (targetFolderId null) matches the "root" scope; the
-        // "all" scope is not a folder and never blocks a drop.
-        currentFolderId: assetScope === "root" ? null : assetScope,
+        // "all" scope is not a folder and never blocks a drop. 生成资产 is a
+        // linked-folder surface, not a managed folder — no same-folder block.
+        currentFolderId:
+          assetScope === "root" || assetScope === "generated"
+            ? null
+            : assetScope,
         assets: dragAssetFacts(assetIds),
         mode,
       });

@@ -83,6 +83,7 @@ import {
   linkedAssetIsUnderDirectory,
   linkedDirectoryName,
   parentLinkedRelativePath,
+  relativePathInside,
   parseLinkedVirtualFolderId,
 } from '../shared/linked-folder-tree';
 import {
@@ -14753,8 +14754,105 @@ export class LibraryService {
       });
   }
 
-  getLinkedFolderRules(input: { libraryId: string; folderId: string }): LinkedFolderRule[] {
+  /**
+   * Absolute source path of an asset (managed = library root + relative;
+   * linked = linked-folder root + relative). Paths stay in Main — used to
+   * look up host-side 生成记录 (generation provenance) keyed by output path.
+   * Returns null when the asset is unknown/corrupt or the disk path escapes.
+   */
+  resolveAssetSourcePath(input: {
+    libraryId: string;
+    assetId: string;
+  }): string | null {
     const openLibrary = this.requireOpenLibrary(input.libraryId);
+    const row = openLibrary.connection
+      .prepare(
+        `SELECT location_kind, linked_folder_id, relative_file_path
+           FROM assets WHERE asset_id = ?`,
+      )
+      .get(input.assetId) as
+      | {
+          location_kind: 'managed' | 'linked';
+          linked_folder_id: string | null;
+          relative_file_path: string;
+        }
+      | undefined;
+    if (!row) return null;
+    try {
+      return row.location_kind === 'linked'
+        ? this.linkedAssetPath(
+            openLibrary,
+            row.linked_folder_id,
+            row.relative_file_path,
+          )
+        : this.folderPath(openLibrary, row.relative_file_path);
+    } catch {
+      // Unknown/missing disk path: no generation record can be resolved.
+      return null;
+    }
+  }
+
+  /**
+   * Reverse lookup used by 生成记录: find an asset by its absolute source
+   * path (managed = library root + relative; linked = linked-folder root +
+   * relative). Paths stay in Main. Returns null when nothing matches.
+   */
+  resolveAssetIdBySourcePath(input: {
+    libraryId: string;
+    sourcePath: string;
+  }): string | null {
+    const openLibrary = this.requireOpenLibrary(input.libraryId);
+    let sourcePath: string;
+    try {
+      sourcePath = normalizeAbsolutePath(input.sourcePath);
+    } catch {
+      return null;
+    }
+    // Managed: the asset's relative path is the path under <library>/Assets.
+    const assetsRoot = path.join(
+      openLibrary.summary.libraryPath,
+      'Assets',
+    );
+    const managedRelative = relativePathInside(assetsRoot, sourcePath);
+    if (managedRelative !== null) {
+      const managed = openLibrary.connection
+        .prepare(
+          `SELECT asset_id FROM assets
+            WHERE location_kind = 'managed' AND relative_file_path = ? LIMIT 1`,
+        )
+        .get(managedRelative) as { asset_id: string } | undefined;
+      if (managed) return managed.asset_id;
+    }
+    // Linked: match against every linked-folder root.
+    const linkedRoots = openLibrary.connection
+      .prepare(
+        'SELECT folder_id, absolute_root_path FROM linked_folders WHERE library_id = ?',
+      )
+      .all(openLibrary.summary.libraryId) as Array<{
+      folder_id: string;
+      absolute_root_path: string;
+    }>;
+    for (const root of linkedRoots) {
+      let rootPath: string;
+      try {
+        rootPath = normalizeAbsolutePath(root.absolute_root_path);
+      } catch {
+        continue;
+      }
+      const relativePath = relativePathInside(rootPath, sourcePath);
+      if (relativePath === null) continue;
+      const linked = openLibrary.connection
+        .prepare(
+          `SELECT asset_id FROM assets
+            WHERE location_kind = 'linked' AND linked_folder_id = ? AND relative_file_path = ? LIMIT 1`,
+        )
+        .get(root.folder_id, relativePath) as { asset_id: string } | undefined;
+      if (linked) return linked.asset_id;
+    }
+    return null;
+  }
+
+  getLinkedFolderRules(input: { libraryId: string; folderId: string }): LinkedFolderRule[] {    const openLibrary = this.requireOpenLibrary(input.libraryId);
     const folder = openLibrary.connection
       .prepare('SELECT folder_id FROM linked_folders WHERE folder_id = ? AND library_id = ?')
       .get(input.folderId, input.libraryId);

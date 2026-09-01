@@ -11,6 +11,8 @@ export type BrowseNavFlags = {
   activeTagId: string | null;
   activeCollectionId: string | null;
   activeSmartCollectionId: string | null;
+  /** 生成资产: which media-kind row is currently active ('all'|'image'|...). */
+  activeGeneratedKind?: string | null;
 };
 
 function isPluginSidebarViewActive(flags: BrowseNavFlags): boolean {
@@ -74,6 +76,27 @@ export function isManagedFolderNavActive(
 ): boolean {
   return (
     flags.assetScope === folderId &&
+    !flags.showTrash &&
+    !isAlternateBrowseSurfaceActive(flags) &&
+    !flags.activeTagId &&
+    !flags.activeCollectionId &&
+    !flags.activeSmartCollectionId
+  );
+}
+
+/**
+ * 生成资产 row active predicate. `assetScope === 'generated'` is the fixed
+ * tab's scope marker; the media-kind row (all/image/video/audio/other) is
+ * carried in activeGeneratedKind so the row highlight is unambiguous even
+ * though the browse session itself is a linked-folder scope + format filters.
+ */
+export function isGeneratedAssetsNavActive(
+  flags: BrowseNavFlags,
+  kind: string,
+): boolean {
+  return (
+    flags.assetScope === "generated" &&
+    flags.activeGeneratedKind === kind &&
     !flags.showTrash &&
     !isAlternateBrowseSurfaceActive(flags) &&
     !flags.activeTagId &&

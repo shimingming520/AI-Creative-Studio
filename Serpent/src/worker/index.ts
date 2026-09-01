@@ -2494,6 +2494,14 @@ async function handleRequestWithoutWriteLease(request: WorkerRequest): Promise<W
           assets,
         };
       }
+    case 'asset.resolve-source-path': {
+      const path = libraryService.resolveAssetSourcePath(request.command);
+      return { ok: true, type: 'asset.source-path', path };
+    }
+    case 'asset.resolve-by-source-path': {
+      const assetId = libraryService.resolveAssetIdBySourcePath(request.command);
+      return { ok: true, type: 'asset.asset-id-by-path', assetId };
+    }
     case 'asset.sequence.create': {
       const asset = libraryService.createImageSequence(request.command);
       scheduleThumbnailScene(

@@ -63,6 +63,7 @@ describe("browser-session", () => {
         activeTagName: "ignored-when-trash",
         activeCollectionId: "c1",
         activeSmartCollectionId: "s1",
+        activeGeneratedKind: null,
         assetScope: "folder-x",
         selectedAssetId: "a1",
         selectedAssetName: "a.png",
@@ -76,6 +77,7 @@ describe("browser-session", () => {
         activeTagName: "hero",
         activeCollectionId: null,
         activeSmartCollectionId: null,
+        activeGeneratedKind: null,
         assetScope: "all",
         selectedAssetId: "a1",
         selectedAssetName: "a.png",
@@ -89,11 +91,26 @@ describe("browser-session", () => {
         activeTagName: undefined,
         activeCollectionId: null,
         activeSmartCollectionId: null,
+        activeGeneratedKind: null,
         assetScope: "folder-9",
         selectedAssetId: "a1",
         selectedAssetName: "a.png",
       }).scope,
     ).toEqual({ kind: "folder", id: "folder-9" });
+
+    expect(
+      buildBrowserSessionFromBrowseState({
+        showTrash: false,
+        activeTagId: null,
+        activeTagName: undefined,
+        activeCollectionId: null,
+        activeSmartCollectionId: null,
+        activeGeneratedKind: "image",
+        assetScope: "generated",
+        selectedAssetId: "a1",
+        selectedAssetName: "a.png",
+      }).scope,
+    ).toEqual({ kind: "generated", mediaKind: "image" });
   });
 
   it("round-trips valid sessions and rejects corrupt payloads", () => {
@@ -250,6 +267,8 @@ describe("applyStoredBrowserSession", () => {
       setTagFilter: vi.fn(),
       setActiveCollectionId: vi.fn(),
       setActiveSmartCollectionId: vi.fn(),
+      generatedAssetsFolderId: null,
+      setActiveGeneratedKind: vi.fn(),
       setAssets: vi.fn(),
       setTrashedAssets,
       setSearchTotal: vi.fn(),

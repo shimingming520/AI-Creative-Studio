@@ -351,6 +351,56 @@ const library: SerpentLibraryApi = Object.freeze({
     return { ok: true as const, value: { path: result.libraryPath } };
   },
 
+  async getGeneratedAssetsRoot(): Promise<LibraryApiResult<string | null>> {
+    const result = await request({ type: 'generated-assets.root.get.request' });
+    if (!result.ok) return failure(result);
+    if (result.type !== 'generated-assets.root') {
+      throw new Error('Unexpected get-generated-assets-root response.');
+    }
+    return { ok: true as const, value: result.root };
+  },
+
+  async ensureGeneratedAssetsLink(): Promise<LibraryApiResult<{ action?: string | null; folderId?: string | null; code?: string | null }>> {
+    const result = await request({ type: 'generated-assets.ensure.request' });
+    if (!result.ok) return failure(result);
+    if (result.type !== 'generated-assets.ensured') {
+      throw new Error('Unexpected ensure-generated-assets-link response.');
+    }
+    return {
+      ok: true as const,
+      value: {
+        action: result.action ?? null,
+        folderId: result.folderId ?? null,
+        code: result.code ?? null,
+      },
+    };
+  },
+
+  async getGenerationRecord({ libraryId, assetId }: { libraryId: string; assetId: string }): Promise<LibraryApiResult<import('../shared/generation-record').GenerationRecord | null>> {
+    const result = await request({ type: 'generation.record.get.request', libraryId, assetId });
+    if (!result.ok) return failure(result);
+    if (result.type !== 'generation.record.got') {
+      throw new Error('Unexpected get-generation-record response.');
+    }
+    return { ok: true as const, value: result.record ?? null };
+  },
+
+  async exportGenerationRecords(): Promise<LibraryApiResult<{ canceled: boolean; filePath?: string; count: number }>> {
+    const result = await request({ type: 'generation.record.export.request' });
+    if (!result.ok) return failure(result);
+    if (result.type !== 'generation.record.exported') {
+      throw new Error('Unexpected export-generation-records response.');
+    }
+    return {
+      ok: true as const,
+      value: {
+        canceled: result.canceled,
+        filePath: result.filePath,
+        count: result.count,
+      },
+    };
+  },
+
   async close({
     libraryId,
   }: {

@@ -2,7 +2,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import {
   readFileSync,
   writeFileSync,
@@ -24,6 +24,11 @@ import {
   utilityProcess,
 } from "electron";
 import type { MessageBoxOptions, NativeImage } from "electron";
+import type { GenerationRecord } from "../shared/generation-record";
+import {
+  generationRecordForPath,
+  generationTaskTypeLabel,
+} from "../shared/generation-record";
 
 import {
   installApplicationMenu,
@@ -411,7 +416,7 @@ const SERPENT_HOSTED = process.env.SERPENT_HOSTED === "1";
  * untouched because the host writes its own settings there.
  */
 function serpentUserDataDir(): string {
-  return process.env.SERPENT_USER_DATA_DIR ?? serpentUserDataDir();
+  return process.env.SERPENT_USER_DATA_DIR ?? app.getPath("userData");
 }
 /**
  * Forge injects these globals via define at build time. A plain rollup/vite
@@ -496,6 +501,30 @@ function serpentDialogWindow(): BrowserWindow | null {
 /** Effective UI locale for native dialogs; synced from Renderer (Serpent-bwb). */
 let appLocale: AppLocale = "en";
 let workerClient: LibraryWorkerClient | undefined;
+/**
+ * Hosted 模式下当前打开的资源库 id（由 handleLibraryRequest 的
+ * library.opened/library.imported/library.closed 后处理维护）。
+ * 供 YUH 宿主调用 hostedManageLinkedFolder 时选择目标库。
+ */
+let hostedActiveLibraryId: string | null = null;
+/**
+ * 生成资产根目录：Serpent 侧“在应用中进行生成的图像/视频/音频等”都落到
+ * 这一路径，固定侧栏「生成资产」把它与链接文件夹的根路径匹配后按类型展示。
+ * 主机（YUH）通过 setHostedGeneratedAssetsRoot 推送；独立运行时可使用
+ * SERPENT_GENERATED_ASSETS_ROOT 环境变量配置。
+ */
+let hostedGeneratedAssetsRoot: string | null =
+  process.env.SERPENT_GENERATED_ASSETS_ROOT?.trim() || null;
+/** 生成资产在资源库里创建的链接文件夹显示名（应用级，按当前库自动创建）。 */
+let hostedGeneratedAssetsDisplayName = "ComfyUI 输出";
+/**
+ * Host-pushed 生成记录: absolute output path → generation provenance
+ * (prompt/workflow/params/model/duration). Kept in Main only; the renderer
+ * receives per-asset records after Main resolves the asset's source path via
+ * the Worker (no paths cross the process boundary).
+ */
+let hostedGenerationRecords: Record<string, GenerationRecord> =
+  Object.create(null);
 /** 自动同步调度器（Serpent-bfsb 后续），随 Worker 生命周期启停。 */
 let syncAutoScheduler: SyncAutoScheduler | undefined;
 type ArtifactPathBatchWaiter = {
@@ -1877,6 +1906,9 @@ async function closeOpenLibrariesBeforeReplacement(): Promise<string[]> {
           libraryId: library.libraryId,
         });
         if (!closed.ok || closed.type !== "library.closed") continue;
+        if (hostedActiveLibraryId === library.libraryId) {
+          hostedActiveLibraryId = null;
+        }
         clearNativeAssetDragCache(library.libraryId);
         clearActiveRecentLibrary(recentLibraryPath(), (error) => {
           logger?.error("recent-library.clear", error);
@@ -1908,6 +1940,7 @@ async function reopenLibrariesAfterFailedReplacement(
         selectedLibraryPath,
       });
       if (!opened.ok || opened.type !== "library.opened") continue;
+      hostedActiveLibraryId = opened.library.libraryId;
       publishLifecycle({
         type: "library.opened",
         library: {
@@ -2571,6 +2604,18 @@ async function commandFor(
       // the Main-owned recent libraries store, and open-recent validates store
       // membership before building the same library.open command used here.
       // forget-recent only mutates the Main store (Serpent-ucx).
+      return undefined;
+    case "generated-assets.root.get.request":
+      // Main-owned config (hosted push or env); handled directly below.
+      return undefined;
+    case "generated-assets.ensure.request":
+      // Main-owned ensure (current library); handled directly below.
+      return undefined;
+    case "generation.record.get.request":
+      // Main-owned lookup (worker path resolve + records map); handled below.
+      return undefined;
+    case "generation.record.export.request":
+      // Main-owned export (native dialog + fs); handled directly below.
       return undefined;
     case "folder.create.request":
       return {
@@ -3885,6 +3930,66 @@ async function handleLibraryRequest(input: unknown): Promise<RendererResult> {
       } satisfies RendererResult;
     }
 
+    // 生成资产 root is Main-owned config (hosted push / env); read-only here.
+    if (request.type === "generated-assets.root.get.request") {
+      return {
+        ok: true,
+        type: "generated-assets.root",
+        root: hostedGeneratedAssetsRoot,
+      } satisfies RendererResult;
+    }
+
+    // 生成资产：应用级自动确保（当前库创建/重链接一次；幂等）。
+    if (request.type === "generated-assets.ensure.request") {
+      const ensured = await ensureHostedGeneratedAssetsLink();
+      return {
+        ok: true,
+        type: "generated-assets.ensured",
+        action: ensured.action ?? null,
+        folderId: ensured.folderId ?? null,
+        code: ensured.code ?? null,
+      } satisfies RendererResult;
+    }
+
+    // 生成记录: resolve the asset source path in the Worker (Main-only) and
+    // look it up in the host-pushed records map.
+    if (request.type === "generation.record.get.request") {
+      let sourcePath: string | null = null;
+      const client = workerClient;
+      if (client) {
+        const resolved = await client.request({
+          type: "asset.resolve-source-path",
+          libraryId: request.libraryId,
+          assetId: request.assetId,
+        });
+        if (
+          resolved.ok &&
+          resolved.type === "asset.source-path" &&
+          typeof resolved.path === "string"
+        ) {
+          sourcePath = resolved.path;
+        }
+      }
+      const record = generationRecordForPath(hostedGenerationRecords, sourcePath);
+      return {
+        ok: true,
+        type: "generation.record.got",
+        record: record ?? undefined,
+      } satisfies RendererResult;
+    }
+
+    // 生成记录导出: native save dialog + JSON/CSV write (Main-only fs access).
+    if (request.type === "generation.record.export.request") {
+      const exported = await exportHostedGenerationRecords();
+      return {
+        ok: true,
+        type: "generation.record.exported",
+        canceled: exported.canceled,
+        filePath: exported.filePath,
+        count: exported.count,
+      } satisfies RendererResult;
+    }
+
     if (request.type === "library.forget-recent.request") {
       if (!path.isAbsolute(request.libraryPath)) {
         return {
@@ -5106,6 +5211,7 @@ async function handleLibraryRequest(input: unknown): Promise<RendererResult> {
         workerResult.type === "library.opened"
           ? workerResult.library.libraryPath
           : workerResult.libraryPath;
+      hostedActiveLibraryId = openedLibraryId;
       notifyLibraryOpenedSideEffects({
         libraryId: openedLibraryId,
         libraryDirectory: openedLibraryPath,
@@ -5114,8 +5220,18 @@ async function handleLibraryRequest(input: unknown): Promise<RendererResult> {
           libraryId: openedLibraryId,
         });
       });
+      // 生成资产是应用级特性：任何资源库打开后都自动确保链接文件夹存在
+      // （无副作用：幂等，路径一致时 no-op）。
+      void ensureHostedGeneratedAssetsLink().catch((error) => {
+        logger?.error('hosted.generated-assets.ensure-on-open', error, {
+          libraryId: openedLibraryId,
+        });
+      });
     }
     if (workerResult.ok && workerResult.type === "library.closed") {
+      if (hostedActiveLibraryId === workerResult.libraryId) {
+        hostedActiveLibraryId = null;
+      }
       sourcePathCache.clearLibrary(workerResult.libraryId);
       clearArtifactPathCache(workerResult.libraryId);
       cancelArtifactPathBatches(workerResult.libraryId);
@@ -6300,7 +6416,7 @@ async function startApplication(): Promise<void> {
       info: (scope, message, context) => logger?.info(scope, message, context),
     },
     pageUrl: resolveOffscreenPageUrl({
-      devServerUrl: SERPENT_DEV_SERVER_URL,
+      devServerUrl: SERPENT_DEV_SERVER_URL ?? null,
       rendererOutDir: packagedRendererOutDir(),
     }),
     preloadPath: path.join(__dirname, "offscreen.js"),
@@ -7297,10 +7413,15 @@ async function startApplication(): Promise<void> {
   });
   syncAutoScheduler.start();
 
-  // Production startup intentionally leaves the library closed. A missing,
-  // disconnected, or incompatible active library must not hold the app before
-  // the user can choose another one from the always-available switcher. The
-  // explicit opt-in is reserved for isolated full-restart E2E coverage.
+  // Startup restore: hosted mode (SERPENT_HOSTED=1, YUH Studio 资源管理) reopens
+  // the last active library so the first mount shows the real library, not the
+  // create surface. Standalone intentionally leaves the library closed — a
+  // missing, disconnected, or incompatible active library must not hold the
+  // app before the user can choose another one from the always-available
+  // switcher. SERPENT_RESTORE_RECENT=1 opts a standalone process into the same
+  // behavior. A renderer that mounts after the restore adopts the library via
+  // listOpen (useBrowserSessionRestore); publishLibraryLifecycle below covers
+  // a renderer that is already alive (hosted auto-mount / early mount).
   const recentPath = recentLibraryAutoOpenEnabled()
     ? readActiveLibraryPath(recentLibraryPath(), (error) => {
         logger?.error("recent-library.read", error);
@@ -7323,9 +7444,25 @@ async function startApplication(): Promise<void> {
     } else {
       // Startup restore bypasses handleLibraryRequest; still must activate plugins.
       // Await so contributions exist before the renderer shell lists menus/settings.
+      hostedActiveLibraryId = restored.library.libraryId;
       await notifyLibraryOpenedSideEffects({
         libraryId: restored.library.libraryId,
         libraryDirectory: restored.library.libraryPath,
+      });
+      // 生成资产：应用级，重启自动恢复的库同样确保链接文件夹存在。
+      void ensureHostedGeneratedAssetsLink().catch((error) => {
+        logger?.error('hosted.generated-assets.ensure-on-restore', error);
+      });
+      // A renderer already subscribed to lifecycle must adopt the restored
+      // library (main-owned transition, same contract as MCP switching).
+      publishLifecycle({
+        type: "library.opened",
+        library: {
+          libraryId: restored.library.libraryId,
+          displayName: restored.library.displayName,
+          displayPath: restored.library.libraryPath,
+        },
+        source: "replacement-restore",
       });
       logger.info(
         "recent-library.restored",
@@ -8234,6 +8371,426 @@ if (!SERPENT_HOSTED) {
 // rendered UI via setSerpentHostedRenderer(). This is the feasibility seam;
 // standalone Serpent never calls these.
 let serpentShutdownPromise: Promise<void> | null = null;
+
+export type HostedManagedLinkedFolderResult = {
+  ok: boolean;
+  code?:
+    | 'not-hosted'
+    | 'worker-unavailable'
+    | 'no-library-open'
+    | 'invalid-source'
+    | 'not-configured'
+    | 'list-failed'
+    | 'create-failed'
+    | 'relink-failed';
+  message?: string;
+  libraryId?: string;
+  folderId?: string | null;
+  displayName?: string;
+  absoluteRootPath?: string;
+  action?: 'created' | 'relinked' | 'unchanged' | 'adopted-path' | 'missing';
+};
+
+function hostedSamePath(left: string, right: string): boolean {
+  const resolve = (value: string) => {
+    const resolved = path.resolve(value);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return resolve(left) === resolve(right);
+}
+
+/**
+ * Hosted-only: configure the generation output root that backs the fixed
+ * 「生成资产」sidebar section. The host pushes the same directory it registers
+ * as a linked folder; the renderer matches the two by absolute path.
+ * Standalone Serpent can set SERPENT_GENERATED_ASSETS_ROOT. Passing null
+ * clears the configuration. The display name is the linked folder's name in
+ * every library the feature auto-creates (defaults to「ComfyUI 输出」).
+ */
+export function setHostedGeneratedAssetsRoot(
+  root: string | null,
+  displayName?: string,
+): void {
+  const trimmed = typeof root === 'string' ? root.trim() : '';
+  hostedGeneratedAssetsRoot =
+    trimmed.length > 0 ? path.resolve(trimmed) : null;
+  if (typeof displayName === 'string' && displayName.trim().length > 0) {
+    hostedGeneratedAssetsDisplayName = displayName.trim();
+  }
+  logger?.info(
+    'hosted.generated-assets.root',
+    hostedGeneratedAssetsRoot ?? '(cleared)',
+  );
+}
+
+/**
+ * Hosted-only, idempotent: ensure the 生成资产 linked folder exists in the
+ * currently open library (create or relink to the configured output root).
+ * App-level feature: runs on every library open and on renderer request, so
+ * the fixed sidebar section tracks the output path no matter which library
+ * the user has open.
+ */
+/**
+ * Hosted-only: replace the 生成记录 map (absolute output path → provenance).
+ * The host pushes this after every generation and at startup; Main serves
+ * per-asset lookups to the renderer. Call with null/undefined to clear.
+ */
+export function setHostedGenerationRecords(
+  records: Record<string, GenerationRecord> | null | undefined,
+): void {
+  if (!records || typeof records !== 'object') {
+    hostedGenerationRecords = Object.create(null);
+    return;
+  }
+  const next: Record<string, GenerationRecord> = Object.create(null);
+  let count = 0;
+  for (const [key, value] of Object.entries(records)) {
+    if (typeof key !== 'string' || !key || !value || typeof value !== 'object') {
+      continue;
+    }
+    next[key] = value;
+    count += 1;
+    if (count >= 50_000) break; // sanity cap, far beyond realistic history
+  }
+  hostedGenerationRecords = next;
+  logger?.info('hosted.generation-records.set', `${count} records`);
+  scheduleGenerationRecordDescriptionFill(records);
+}
+
+// --- 生成记录: 自动把提示词写入资产描述（模型/工作流附注），便于检索 --------
+/** 已尝试回填的路径（每次推送只处理增量，避免重复 worker 往返）。 */
+const generationRecordFillAttempted = new Set<string>();
+const GENERATION_RECORD_FILL_CAP = 400;
+
+async function fillGenerationRecordDescription(
+  record: GenerationRecord,
+  sourcePath: string,
+): Promise<void> {
+  const client = workerClient;
+  const libraryId = hostedActiveLibraryId;
+  if (!client || !libraryId || !record.prompt || !record.prompt.trim()) return;
+  const resolved = await client.request({
+    type: 'asset.resolve-by-source-path',
+    libraryId,
+    sourcePath,
+  });
+  if (!resolved.ok || resolved.type !== 'asset.asset-id-by-path' || !resolved.assetId) {
+    return;
+  }
+  const metadata = await client.request({
+    type: 'asset.metadata.get',
+    libraryId,
+    assetId: resolved.assetId,
+  });
+  if (!metadata.ok || metadata.type !== 'asset.metadata.got') return;
+  if (metadata.metadata.description?.trim()) {
+    // Don't clobber a user/AI description.
+    return;
+  }
+  const parts = [record.prompt.trim()];
+  const taskTypeLabel = generationTaskTypeLabel(record);
+  if (taskTypeLabel) parts.push(`类型：${taskTypeLabel}`);
+  if (record.model) parts.push(`模型：${record.model}`);
+  const description = parts.join('\n\n').slice(0, 2_000);
+  await client.request({
+    type: 'asset.metadata.set',
+    libraryId,
+    assetId: resolved.assetId,
+    expectedVersion: metadata.metadata.entityVersion,
+    description,
+  });
+}
+
+/** Queue description fills for records not attempted yet (incremental). */
+function scheduleGenerationRecordDescriptionFill(
+  records: Record<string, GenerationRecord>,
+): void {
+  if (!SERPENT_HOSTED || !workerClient) return;
+  let queued = 0;
+  for (const [sourcePath, record] of Object.entries(records)) {
+    if (generationRecordFillAttempted.has(sourcePath)) continue;
+    generationRecordFillAttempted.add(sourcePath);
+    void fillGenerationRecordDescription(record, sourcePath).catch(() => {});
+    queued += 1;
+    if (queued >= GENERATION_RECORD_FILL_CAP) break;
+  }
+  if (queued > 0) {
+    logger?.info('hosted.generation-records.descriptions', `${queued} queued`);
+  }
+}
+
+// --- 生成记录导出（JSON / CSV） ---------------------------------------------
+function generationRecordCsvEscape(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? ''
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+  return /[",\r\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function generationRecordsToCsv(
+  entries: Array<[string, GenerationRecord]>,
+): string {
+  const header = [
+    'outputPath',
+    'taskId',
+    'kind',
+    'taskType',
+    'taskTypeLabel',
+    'prompt',
+    'workflow',
+    'model',
+    'durationMs',
+    'createdAt',
+    'completedAt',
+    'engine',
+    'params',
+  ];
+  const rows = entries.map(([outputPath, record]) =>
+    [
+      outputPath,
+      record.taskId,
+      record.kind,
+      record.taskType,
+      record.taskTypeLabel,
+      record.prompt,
+      record.workflow,
+      record.model,
+      record.durationMs,
+      record.createdAt,
+      record.completedAt,
+      record.engine,
+      record.params ? JSON.stringify(record.params) : '',
+    ]
+      .map(generationRecordCsvEscape)
+      .join(','),
+  );
+  // UTF-8 BOM so Excel opens the Chinese columns correctly.
+  return `\uFEFF${[header.join(','), ...rows].join('\n')}`;
+}
+
+export async function exportHostedGenerationRecords(
+  formatHint: 'json' | 'csv' | 'auto' = 'auto',
+): Promise<{
+  canceled: boolean;
+  filePath?: string;
+  count: number;
+}> {
+  const entries = Object.entries(hostedGenerationRecords).sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  );
+  const extension = formatHint === 'auto' ? 'json' : formatHint;
+  const defaultName = `generation-records-${new Date()
+    .toISOString()
+    .slice(0, 10)}.${extension}`;
+  const options: Electron.SaveDialogOptions = {
+    title: '导出生成记录',
+    defaultPath: defaultName,
+    filters: [
+      { name: 'JSON', extensions: ['json'] },
+      { name: 'CSV', extensions: ['csv'] },
+    ],
+  };
+  const hostWindow = serpentDialogWindow();
+  const picked = hostWindow
+    ? await dialog.showSaveDialog(hostWindow, options)
+    : await dialog.showSaveDialog(options);
+  if (picked.canceled || !picked.filePath) {
+    return { canceled: true, count: entries.length };
+  }
+  const isCsv = picked.filePath.toLowerCase().endsWith('.csv');
+  const content = isCsv
+    ? generationRecordsToCsv(entries)
+    : JSON.stringify(
+        entries.map(([outputPath, record]) => ({ outputPath, ...record })),
+        null,
+        2,
+      );
+  await writeFile(picked.filePath, content, 'utf8');
+  return {
+    canceled: false,
+    filePath: picked.filePath,
+    count: entries.length,
+  };
+}
+
+export async function ensureHostedGeneratedAssetsLink(): Promise<HostedManagedLinkedFolderResult> {  if (!SERPENT_HOSTED) {
+    return {
+      ok: false,
+      code: 'not-hosted',
+      message: 'Serpent hosted integration is disabled.',
+    };
+  }
+  if (!hostedGeneratedAssetsRoot) {
+    return {
+      ok: false,
+      code: 'not-configured',
+      message: 'No generated-assets root is configured.',
+    };
+  }
+  if (!hostedActiveLibraryId) {
+    return {
+      ok: false,
+      code: 'no-library-open',
+      message: 'No library is open in hosted Serpent.',
+    };
+  }
+  return hostedManageLinkedFolder({
+    displayName: hostedGeneratedAssetsDisplayName,
+    sourceRootPath: hostedGeneratedAssetsRoot,
+    allowCreate: true,
+  });
+}
+
+/**
+ * Hosted-only: idempotently manage a linked folder by display name + root path.
+ *
+ * YUH uses this to track "ComfyUI 输出" against the configured output dir:
+ * - found with same root    → unchanged
+ * - found with different root → relink (folder id preserved)
+ * - missing + allowCreate   → import linked (full scan; watcher keeps it fresh)
+ * - missing + !allowCreate  → 'missing' (host decides the user removed it)
+ * - same path under another display name → 'adopted-path' (user renamed)
+ *
+ * Target library = the currently open library (hostedActiveLibraryId).
+ */
+export async function hostedManageLinkedFolder(input: {
+  displayName: string;
+  sourceRootPath: string;
+  allowCreate: boolean;
+}): Promise<HostedManagedLinkedFolderResult> {
+  if (!SERPENT_HOSTED) {
+    return { ok: false, code: 'not-hosted', message: 'Serpent hosted integration is disabled.' };
+  }
+  const displayName = input.displayName.trim();
+  const sourceRootPath = input.sourceRootPath.trim();
+  if (!displayName || !sourceRootPath) {
+    return { ok: false, code: 'invalid-source', message: 'displayName and sourceRootPath are required.' };
+  }
+  if (!existsSync(sourceRootPath)) {
+    return { ok: false, code: 'invalid-source', message: `Source root does not exist: ${sourceRootPath}` };
+  }
+  const client = workerClient;
+  if (!client) {
+    return { ok: false, code: 'worker-unavailable', message: 'Serpent worker is not running.' };
+  }
+  const libraryId = hostedActiveLibraryId;
+  if (!libraryId) {
+    return { ok: false, code: 'no-library-open', message: 'No library is open in hosted Serpent.' };
+  }
+
+  const listLinked = async (): Promise<
+    { ok: true; folders: Array<{ folderId: string; displayName: string; absoluteRootPath: string }> }
+    | { ok: false; message: string }
+  > => {
+    const result = await client.request({ type: 'linked-folder.list', libraryId });
+    if (!result.ok || result.type !== 'linked-folder.list') {
+      return {
+        ok: false,
+        message: result.ok ? 'Unexpected linked-folder.list response.' : result.error.message,
+      };
+    }
+    return { ok: true, folders: result.folders };
+  };
+
+  const adopted = (folder: { folderId: string; displayName: string; absoluteRootPath: string }) =>
+    ({
+      ok: true,
+      action: 'adopted-path',
+      libraryId,
+      folderId: folder.folderId,
+      displayName: folder.displayName,
+      absoluteRootPath: folder.absoluteRootPath,
+    }) satisfies HostedManagedLinkedFolderResult;
+
+  try {
+    const listed = await listLinked();
+    if (!listed.ok) {
+      return { ok: false, code: 'list-failed', message: listed.message };
+    }
+    const byName = listed.folders.find((folder) => folder.displayName === displayName);
+    if (byName) {
+      if (hostedSamePath(byName.absoluteRootPath, sourceRootPath)) {
+        return {
+          ok: true,
+          action: 'unchanged',
+          libraryId,
+          folderId: byName.folderId,
+          displayName,
+          absoluteRootPath: byName.absoluteRootPath,
+        };
+      }
+      const relinked = await client.request({
+        type: 'linked-folder.relink',
+        libraryId,
+        folderId: byName.folderId,
+        newRootPath: sourceRootPath,
+      });
+      if (!relinked.ok || relinked.type !== 'linked-folder.relinked') {
+        return {
+          ok: false,
+          code: 'relink-failed',
+          message: relinked.ok ? 'Unexpected linked-folder.relinked response.' : relinked.error.message,
+        };
+      }
+      // 新根目录下可能已有本库未记录的旧文件：后台触发一次全量对账补收录。
+      void client.request({ type: 'asset.refresh', libraryId }).catch((error) => {
+        logger?.error('hosted.linked-folders.relink-refresh', error);
+      });
+      return {
+        ok: true,
+        action: 'relinked',
+        libraryId,
+        folderId: relinked.linkedFolder.folderId,
+        displayName,
+        absoluteRootPath: relinked.linkedFolder.absoluteRootPath,
+      };
+    }
+    const byPath = listed.folders.find((folder) => hostedSamePath(folder.absoluteRootPath, sourceRootPath));
+    if (byPath) return adopted(byPath);
+    if (!input.allowCreate) {
+      return { ok: true, action: 'missing', libraryId, folderId: null, displayName };
+    }
+    const created = await client.request({
+      type: 'asset.import-linked',
+      libraryId,
+      displayName,
+      sourceRootPath,
+    });
+    if (!created.ok || created.type !== 'asset.import-linked.completed') {
+      // Create failed (e.g. same path already linked under another name):
+      // re-list by path before giving up so the host can adopt the existing link.
+      const relisted = await listLinked();
+      if (relisted.ok) {
+        const byPathAfter = relisted.folders.find(
+          (folder) => hostedSamePath(folder.absoluteRootPath, sourceRootPath),
+        );
+        if (byPathAfter) return adopted(byPathAfter);
+      }
+      return {
+        ok: false,
+        code: 'create-failed',
+        message: created.ok ? 'Unexpected asset.import-linked response.' : created.error.message,
+      };
+    }
+    return {
+      ok: true,
+      action: 'created',
+      libraryId,
+      folderId: created.linkedFolder.folderId,
+      displayName,
+      absoluteRootPath: created.linkedFolder.absoluteRootPath,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'worker-unavailable',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 export async function startSerpentHosted(): Promise<void> {
   if (!SERPENT_HOSTED) return;

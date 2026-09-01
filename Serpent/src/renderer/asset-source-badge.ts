@@ -19,6 +19,12 @@ export function shouldShowAssetSourceBadge(
   context: AssetSourceBadgeBrowseContext,
   managedFolderId: string | null,
 ): boolean {
+  if (context.assetScope === "generated") {
+    // 生成资产: every asset lives under the linked generation output root, so
+    // the chip would be noise; only managed-folder assets (impossible here,
+    // but defensive) would still show one under the mixed rule.
+    return managedFolderId !== null;
+  }
   if (context.assetScope !== "all" && context.assetScope !== "root") {
     // Folder scope: badge only when the asset lives elsewhere (typical under
     // recursive/include-children). Direct children of the current folder stay clean.

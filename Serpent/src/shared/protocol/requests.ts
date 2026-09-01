@@ -218,6 +218,31 @@ export const rendererRequestSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('library.list-recent.request'),
   }),
+  // 生成资产: the configured generation output root is Main-owned (hosted
+  // hosts set it via setHostedGeneratedAssetsRoot; SERPENT_GENERATED_ASSETS_ROOT
+  // covers standalone). This request only reads it — the renderer matches the
+  // root against linked folders to build the fixed sidebar section.
+  z.strictObject({
+    type: z.literal('generated-assets.root.get.request'),
+  }),
+  // 生成资产是应用级特性：渲染层发现当前库尚无匹配链接时请求主进程自动
+  // 创建/重链接（幂等），这样无论打开哪个资源库都能看到该固定分区。
+  z.strictObject({
+    type: z.literal('generated-assets.ensure.request'),
+  }),
+  // 生成记录: the renderer asks for a single asset's generation provenance
+  // (prompt/workflow/params/model/duration). Main resolves the asset path via
+  // the Worker and looks the record up in the host-pushed records map.
+  z.strictObject({
+    type: z.literal('generation.record.get.request'),
+    libraryId: identifierSchema,
+    assetId: identifierSchema,
+  }),
+  // 生成记录导出: Main shows the native save dialog and writes JSON/CSV
+  // (format follows the chosen file extension).
+  z.strictObject({
+    type: z.literal('generation.record.export.request'),
+  }),
   // The renderer may only name a library path that Main itself recorded in the
   // recent libraries store; Main re-validates membership before dispatching.
   z.strictObject({
@@ -1490,6 +1515,20 @@ export const workerCommandSchema = z.discriminatedUnion('type', [
     folderId: folderScopeIdSchema.optional(),
     recursive: z.boolean(),
     showIgnored: z.boolean().optional(),
+  }),
+  // 生成记录: resolve an asset's absolute source path (managed or linked) so
+  // Main can look up the host-side generation record. Path stays in Main —
+  // never crosses to the renderer.
+  z.strictObject({
+    type: z.literal('asset.resolve-source-path'),
+    libraryId: identifierSchema,
+    assetId: identifierSchema,
+  }),
+  // 生成记录 reverse lookup: assetId for an absolute source path (Main-only).
+  z.strictObject({
+    type: z.literal('asset.resolve-by-source-path'),
+    libraryId: identifierSchema,
+    sourcePath: z.string().min(1).max(4096),
   }),
   z.strictObject({
     type: z.literal('asset.sequence.create'),

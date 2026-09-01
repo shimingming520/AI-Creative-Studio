@@ -58,11 +58,23 @@ export function recentLibraryPersistenceEnabled(): boolean {
 }
 
 /**
- * Automatic restore is deliberately opt-in for isolated lifecycle tests. A
- * broken, disconnected, or incompatible library must never block the normal
- * startup surface before the user can choose another library.
+ * Automatic restore of the last active library (recent-library.json activePath).
+ *
+ * - Hosted integration (SERPENT_HOSTED=1, e.g. YUH Studio「资源管理」):
+ *   always enabled. Entering the resource-management view must show the
+ *   previously used library instead of the empty create surface; every session
+ *   start would otherwise force the user to re-open (or re-create) a library.
+ *   An explicit library close already clears activePath, so restore can never
+ *   fight an intentional close.
+ * - Standalone: deliberately opt-in (SERPENT_RESTORE_RECENT=1). A broken,
+ *   disconnected, or incompatible library must never block the normal startup
+ *   surface before the user can choose another one; the always-available
+ *   switcher stays authoritative.
+ * - Isolated restart E2E coverage: SERPENT_E2E=1 + SERPENT_E2E_RESTORE_RECENT=1.
  */
 export function recentLibraryAutoOpenEnabled(): boolean {
+  if (process.env.SERPENT_HOSTED === '1') return true;
+  if (process.env.SERPENT_RESTORE_RECENT === '1') return true;
   return process.env.SERPENT_E2E === '1' && process.env.SERPENT_E2E_RESTORE_RECENT === '1';
 }
 
