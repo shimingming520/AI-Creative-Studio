@@ -56,6 +56,7 @@ import { parseSearchExpression, splitSearchHighlights } from "./search-expressio
 import { ConvertLinkedDialog } from "./ConvertLinkedDialog";
 import { LinkedRulesDialog } from "./LinkedRulesDialog";
 import { TagManagementWorkspace } from "./TagManagementWorkspace";
+import { ReplacementStudioWorkspace } from "./replacement-studio/ReplacementStudioWorkspace";
 import { useFolderDeleteActions } from "./use-folder-delete-actions";
 import { useFolderOrganizeActions } from "./use-folder-organize-actions";
 import { useFolderCommandShortcuts } from "./use-folder-command-shortcuts";
@@ -1180,6 +1181,20 @@ function AppInner() {
   }, [showTrash]);
   const [showTagManagement, setShowTagManagement] = useState(false);
   const [activePluginSidebarViewId, setActivePluginSidebarViewId] = useState<string | null>(null);
+  // 替换工作室:由 YUH 宿主通过 serpent-host:open-view 打开(全屏叠加)。
+  const [showReplacementStudio, setShowReplacementStudio] = useState(false);
+  useEffect(() => {
+    const host = (
+      window as unknown as {
+        serpent?: { host?: { onOpenView(callback: (viewId: string) => void): () => void } };
+      }
+    ).serpent?.host;
+    if (!host) return;
+    return host.onOpenView((viewId) => {
+      // replacement-studio → 打开替换工作室;其它视图 id → 关闭(回到资源库)。
+      setShowReplacementStudio(viewId === "replacement-studio");
+    });
+  }, []);
   const [trashedAssets, setTrashedAssets] = useState<AssetSummary[]>([]);
   const [trashedAssetCount, setTrashedAssetCount] = useState(0);
 
@@ -13058,6 +13073,9 @@ function AppInner() {
         />
       )}
     </main>
+    {showReplacementStudio && (
+      <ReplacementStudioWorkspace onExit={() => setShowReplacementStudio(false)} />
+    )}
     </>
   );
 }

@@ -13801,6 +13801,7 @@ function registerIpc() {
   registerLocalComfyIpc();
   registerWorkflowsIpc();
   registerSerpentIpc();
+  registerReplacementStudioIpc();
 }
 function registerSerpentIpc() {
   electron.ipcMain.handle("serpent:status", () => serpentHost.getState());
@@ -13812,6 +13813,14 @@ function registerSerpentIpc() {
       void serpentHost.ensureComfyuiOutputLink(outputDir());
     }
     return visible;
+  });
+  electron.ipcMain.handle("serpent:open-view", async (_event, viewId) => {
+    // 「替换工作室」等嵌入视图入口：先显示 Serpent 视图再通知渲染层切换。
+    const ok = await serpentHost.openView(viewId);
+    if (ok) {
+      void serpentHost.ensureComfyuiOutputLink(outputDir());
+    }
+    return ok;
   });
   electron.ipcMain.handle("serpent:show", async () => {
     const ok = await serpentHost.show();
@@ -13836,6 +13845,157 @@ function registerSerpentIpc() {
       win.webContents.send("serpent:status-changed", state);
     }
   });
+}
+
+/**
+ * 替换工作室 (Replacement Studio) host bridge。
+ * Serpent 渲染层(嵌入视图)经其 preload 调用 rs:* 通道;复用主进程既有
+ * 能力(云端图片/视频生成、视觉对话检测、文件选择、抽帧、缩略图),
+ * 项目持久化位于 <userData>/serpent/replacement-studio。
+ */
+function replacementStudioDir() {
+  return node_path.join(
+    electron.app.getPath("userData"),
+    "serpent",
+    "replacement-studio",
+  );
+}
+function replacementStudioIndexFile() {
+  return node_path.join(replacementStudioDir(), "projects.json");
+}
+function replacementStudioProjectFile(id) {
+  const safe = String(id || "").replace(/[^\w-]/g, "_");
+  return node_path.join(replacementStudioDir(), `${safe}.json`);
+}
+function replacementStudioReadIndex() {
+  try {
+    const parsed = JSON.parse(
+      node_fs.readFileSync(replacementStudioIndexFile(), "utf8"),
+    );
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function replacementStudioWriteIndex(list) {
+  node_fs.mkdirSync(replacementStudioDir(), { recursive: true });
+  node_fs.writeFileSync(
+    replacementStudioIndexFile(),
+    JSON.stringify(list, null, 2),
+    "utf8",
+  );
+}
+function replacementStudioMeta(project) {
+  const p = project || {};
+  return {
+    id: String(p.id || ""),
+    title: String(p.title || "未命名替换项目"),
+    updatedAt: String(p.updatedAt || /* @__PURE__ */ new Date().toISOString()),
+  };
+}
+async function registerReplacementStudioIpc() {
+  const handlers = {
+    "rs:projects-load": () => {
+      const out = [];
+      for (const meta of replacementStudioReadIndex()) {
+        try {
+          const project = JSON.parse(
+            node_fs.readFileSync(
+              replacementStudioProjectFile(meta.id),
+              "utf8",
+            ),
+          );
+          if (project && typeof project === "object") out.push(project);
+        } catch {
+          // 单文件损坏不影响其它项目
+        }
+      }
+      return { projects: out };
+    },
+    "rs:project-save": (project) => {
+      if (!project || typeof project !== "object" || !project.id)
+        throw new Error("无效的项目数据");
+      const meta = replacementStudioMeta(project);
+      try {
+        node_fs.mkdirSync(replacementStudioDir(), { recursive: true });
+        node_fs.writeFileSync(
+          replacementStudioProjectFile(meta.id),
+          JSON.stringify(project, null, 2),
+          "utf8",
+        );
+        const index = replacementStudioReadIndex().filter(
+          (item) => item.id !== meta.id,
+        );
+        index.push(meta);
+        replacementStudioWriteIndex(index);
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: String((error && error.message) || error),
+        };
+      }
+    },
+    "rs:project-delete": (id) => {
+      replacementStudioWriteIndex(
+        replacementStudioReadIndex().filter((item) => item.id !== id),
+      );
+      try {
+        node_fs.unlinkSync(replacementStudioProjectFile(id));
+      } catch {}
+      return { ok: true };
+    },
+    "rs:detect-people": async (request) => {
+      if (!request || !request.providerId || !request.imagePath)
+        throw new Error("人物检测参数不足（请选择中转站并确认基础图已就绪）");
+      const result = await sendVisionChat({
+        providerId: request.providerId,
+        model: String(request.model || "").trim() || "vision",
+        prompt:
+          String(request.prompt || "").trim() ||
+          "列出图片中所有人物及其位置框",
+        imagePaths: [request.imagePath],
+      });
+      return { text: extractChatText(result) };
+    },
+    "rs:save-data-image": async (request) => {
+      if (!request || !request.dataUrl) throw new Error("缺少图片数据");
+      const match = /^data:image\/[\w.+-]+;base64,(.+)$/s.exec(
+        String(request.dataUrl),
+      );
+      if (!match || !match[1]) throw new Error("图片数据格式无效");
+      const tmp = node_path.join(replacementStudioDir(), "tmp");
+      node_fs.mkdirSync(tmp, { recursive: true });
+      const name = String(request.name || "image").replace(/[^\w.-]+/g, "_");
+      const target = node_path.join(
+        tmp,
+        `${name}-${/* @__PURE__ */ Date.now()}.png`,
+      );
+      node_fs.writeFileSync(target, Buffer.from(match[1], "base64"));
+      return { path: target };
+    },
+    "rs:extract-frame": async (request) => {
+      if (!request || !request.file) throw new Error("缺少视频文件");
+      const root =
+        outputDir() ||
+        node_path.join(
+          electron.app.getPath("userData"),
+          "replacement-studio-frames",
+        );
+      return extractVideoFrame({
+        file: request.file,
+        outputDir: request.outputDir && request.outputDir.trim()
+          ? request.outputDir
+          : root,
+        position: request.position === "last" ? "last" : "first",
+      });
+    },
+  };
+  for (const [channel, handler] of Object.entries(handlers)) {
+    electron.ipcMain.handle(channel, (_event, ...args) =>
+      handler(...args),
+    );
+  }
 }
 if (process.argv.includes("--hidden")) {
   process.env.YUNHUI_AUTOSTART = "1";

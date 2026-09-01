@@ -376,6 +376,8 @@ const api = {
     toggle: () => electron.ipcRenderer.invoke("serpent:toggle"),
     show: () => electron.ipcRenderer.invoke("serpent:show"),
     hide: () => electron.ipcRenderer.invoke("serpent:hide"),
+    openView: (viewId) =>
+      electron.ipcRenderer.invoke("serpent:open-view", viewId),
     reportLayout: (layout) =>
       electron.ipcRenderer.invoke("serpent:report-layout", layout),
     onStatus: (callback) => {

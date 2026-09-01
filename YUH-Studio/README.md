@@ -39,10 +39,51 @@ Serpent 侧栏（Serpent`src/renderer/NavigationSidebar.tsx`）新增固定分�
 - 按类型分级：全部生成资产 / 图像 / 视频 / 音频 / 其他，统计数量随资产变更（fs watcher 收录新生成物）自动刷新；点击行浏览对应类型（链接文件夹递归范围 + `format` 过滤），支持搜索、标签、收藏、删除等常规资源管理操作。
 - 未配置/未链接时该分区隐藏或显示提示；独立运行 Serpent 可用环境变量 `SERPENT_GENERATED_ASSETS_ROOT` 指定同一目录。
 
+## 替换工作室（迁移自 ShuoCanvas personReplacement 核心流程）
+
+左侧边栏（原版 UI「无限画布」之下、资源管理之上）新增「替换工作室」入口；点击后显示
+Serpent 嵌入视图并切换到替换工作室全屏工作区（`serpent-sidebar-inject.js` 注入按钮 →
+`h3.serpent.openView("replacement-studio")` → 主进程 `serpent:open-view` →
+`dev-src/serpent-host.js::openView` → Serpent 渲染层 `App.tsx` 叠加层）。
+
+功能与 ShuoCanvas「替换工作室」对应关系：
+
+- **项目库 → 素材设定**：基础图片或视频（视频自动抽取首帧）；目标角色 + 参考形象。
+- **人物绑定**：手动框选 + AI 智能检测（通用视觉大模型，经 YUH `chat:send` 中转站；
+  相比 ShuoCanvas 的本机 OSNET 模型包更通用，无需下载模型）；每个人物可绑定角色/形象
+  与替换范围（完整人物/脸发/服装/手部/脚部）。
+- **图像替换**：多图引导生成（原图 + 彩色字母位置标注图 + 目标形象参考图），提示词模板
+  自动组装（`{bindings}`/`{scopeLines}`/`{shot}`），走 `cloud-images:generate`
+  （OpenAI 兼容图片编辑），结果自动保存到输出目录。
+- **视频替换**：以激活替换图为起始帧（可选参考原视频）走 `cloud-videos:generate`。
+- **导出**：输出目录即「ComfyUI 输出」链接 → 资源管理「生成资产」自动可见；支持定位/
+  打开文件夹与生成历史。
+
+代码位置：
+
+- 渲染层：`Serpent/src/renderer/replacement-studio/`（React）；纯逻辑与类型
+  `Serpent/src/shared/replacement-studio.ts`（单元测试 `Serpent/tests/unit/replacement-studio.test.ts`）。
+- 宿主桥：`Serpent/src/preload/index.ts`（`window.serpent.host.*` → YUH IPC 白名单）。
+- YUH 主进程：`dev-src/main/index.js` 的 `registerReplacementStudioIpc()`（`rs:*` 通道）
+  与 `registerSerpentIpc()` 中新增的 `serpent:open-view`；项目数据存于
+  `<userData>/serpent/replacement-studio/`。
+- 生成/检测依赖 YUH 中转站配置（`providers:list/save`，AI 对话设置界面里相同的
+  中转站列表）；需要配置 API Key 的图片编辑模型（如 gpt-image-1/seedream 类）。
+
+修改 Serpent 源码后需重建 hosted 产物再重启应用：
+
+```powershell
+cd ..\Serpent
+node scripts/hosted-rebuild.mjs
+```
+
+调试脚本：`scripts/cdp-replacement-studio.mjs`（侧栏入口 + 嵌入视图 + rs IPC 往返 E2E）、
+`scripts/cdp-replacement-editor.mjs`（新建项目 + 步骤导航）、
+`scripts/test-serpent-sidebar.cjs`（注入状态机回归）。
+
 ## TSX 开发模式
 
 新的 React + TypeScript 入口位于 `ui-src/`，可运行类型检查和 Vite 开发服务器：
-
 ```powershell
 npm run typecheck
 npm run start:ui

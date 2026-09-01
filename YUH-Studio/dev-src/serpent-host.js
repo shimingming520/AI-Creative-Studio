@@ -380,6 +380,20 @@ async function toggle() {
 }
 
 /**
+ * 显示 Serpent 视图并通知其渲染层切换到指定视图(如 replacement-studio)。
+ * 返回 true 表示视图已可见;消息经 Serpent preload 的
+ * serpent-host:open-view 通道转发给 React 状态。
+ */
+async function openView(viewId) {
+  const ok = await show();
+  if (ok && serpView && !serpView.webContents.isDestroyed()) {
+    mark("open-view:send", String(viewId || ""));
+    serpView.webContents.send("serpent-host:open-view", String(viewId || ""));
+  }
+  return ok;
+}
+
+/**
  * 自动化冒烟（YUH_SERPENT_SMOKE=1）：直接从嵌入视图里调用 Serpent 的
  * preload API，验证 ① IPC 往返 ② worker/DB（创建库 + 写数据库文件）
  * ③ 缩略图（导入图片 → 轮询缩略图 artifact）。
@@ -762,6 +776,7 @@ module.exports = {
   show,
   hide,
   toggle,
+  openView,
   shutdown,
   enabled,
   getState,

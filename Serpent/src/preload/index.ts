@@ -2941,6 +2941,84 @@ const plugins: SerpentPluginManagerApi = Object.freeze({
   },
 });
 
+// ---------------------------------------------------------------------------
+// YUH host bridge (资源管理宿主 / 替换工作室)
+// 在 SERPENT_HOSTED=1 模式下由 YUH 主进程注册全部 rs:* 通道(其余通道为
+// YUH 原生 IPC);独立运行 Serpent 时这些通道不存在,isHosted() 返回 false。
+// ---------------------------------------------------------------------------
+const SERPENT_HOST_OPEN_VIEW_CHANNEL = 'serpent-host:open-view';
+const HOST_INVOKE_CHANNELS = new Set([
+  'serpent:hide',
+  'rs:projects-load',
+  'rs:project-save',
+  'rs:project-delete',
+  'rs:detect-people',
+  'rs:save-data-image',
+  'rs:extract-frame',
+  'utilities:pick-images',
+  'utilities:pick-video',
+  'providers:list',
+  'providers:models',
+  'workspace:get',
+  'files:thumbnail',
+  'files:read-as-data-url',
+  'cloud-images:generate',
+  'cloud-videos:generate',
+  'shell:show-item',
+  'shell:open-path',
+]);
+
+const hostedRenderer = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get('serpentHosted') === '1';
+  } catch {
+    return false;
+  }
+})();
+
+const hostInvoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
+  if (!hostedRenderer) {
+    return Promise.reject(new Error('替换工作室需要在 YUH Studio 宿主中运行'));
+  }
+  if (!HOST_INVOKE_CHANNELS.has(channel)) {
+    return Promise.reject(new Error(`未知宿主通道: ${channel}`));
+  }
+  return ipcRenderer.invoke(channel, ...args);
+};
+
+const host = Object.freeze({
+  isHosted: () => hostedRenderer,
+  onOpenView: (callback: (viewId: string) => void): (() => void) => {
+    const listener = (_event: unknown, viewId: unknown) => callback(String(viewId || ''));
+    ipcRenderer.on(SERPENT_HOST_OPEN_VIEW_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(SERPENT_HOST_OPEN_VIEW_CHANNEL, listener);
+  },
+  hide: () => hostInvoke('serpent:hide'),
+  projectsLoad: () => hostInvoke('rs:projects-load'),
+  projectSave: (project: unknown) => hostInvoke('rs:project-save', project),
+  projectDelete: (id: string) => hostInvoke('rs:project-delete', id),
+  pickImages: (multiple?: boolean) => hostInvoke('utilities:pick-images', Boolean(multiple)),
+  pickVideo: () => hostInvoke('utilities:pick-video'),
+  thumbnail: (path: string, width?: number) => hostInvoke('files:thumbnail', path, width),
+  readImage: (path: string) => hostInvoke('files:read-as-data-url', path),
+  saveDataImage: (request: { dataUrl: string; name: string }) =>
+    hostInvoke('rs:save-data-image', request),
+  extractFrame: (request: {
+    file: string;
+    outputDir: string;
+    position?: 'first' | 'last';
+  }) => hostInvoke('rs:extract-frame', request),
+  detectPeople: (request: { providerId: string; model: string; prompt: string; imagePath: string }) =>
+    hostInvoke('rs:detect-people', request),
+  generateImage: (request: unknown) => hostInvoke('cloud-images:generate', request),
+  generateVideo: (request: unknown) => hostInvoke('cloud-videos:generate', request),
+  listProviders: () => hostInvoke('providers:list'),
+  listModels: (providerId: string) => hostInvoke('providers:models', providerId),
+  workspace: () => hostInvoke('workspace:get'),
+  showItem: (path: string) => hostInvoke('shell:show-item', path),
+  openPath: (path: string) => hostInvoke('shell:open-path', path),
+});
+
 contextBridge.exposeInMainWorld(
   'serpent',
   Object.freeze({
@@ -2950,6 +3028,7 @@ contextBridge.exposeInMainWorld(
     automation,
     mcp,
     plugins,
+    host,
     ...(e2eEnabled ? { e2e: e2eDiagnostics } : {}),
   }),
 );
