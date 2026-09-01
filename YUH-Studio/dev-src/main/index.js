@@ -5695,6 +5695,30 @@ async function findFfmpeg() {
 function result(outputPaths, message2) {
   return { success: true, outputPaths, message: message2 };
 }
+function rsRunFfmpeg(ffmpegBin, args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = node_child_process.spawn(ffmpegBin, args, {
+      windowsHide: true,
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      resolvePromise({ ok: code === 0, stderr });
+    });
+  });
+}
+
+/**
+ * rs 通道使用的轻量 ffmpeg 定位(避免 findFfmpeg → resolveRuntime 的
+ * 外置 ComfyUI 依赖与耗时检查):环境变量 FFMPEG_PATH → 系统 PATH。
+ */
+function rsFfmpeg() {
+  const configured = String(process.env.FFMPEG_PATH || "").trim();
+  return configured || "ffmpeg";
+}
 function uniqueOutput(directory, desiredName) {
   const extension = node_path.extname(desiredName);
   const stem = node_path.basename(desiredName, extension);
@@ -5967,8 +5991,13 @@ async function splitImages(request) {
     srcHeight = metadata.height;
     const cellWidth = Math.floor(metadata.width / request.cols);
     const cellHeight = Math.floor(metadata.height / request.rows);
+    const indexFilter = Array.isArray(request.indexes)
+      ? new Set(request.indexes.map((item) => Number(item)))
+      : null;
     for (let row = 0; row < request.rows; row += 1) {
       for (let col = 0; col < request.cols; col += 1) {
+        const cellIndex = row * request.cols + col;
+        if (indexFilter && !indexFilter.has(cellIndex)) continue;
         const left = col * cellWidth;
         const top = row * cellHeight;
         const width =
@@ -13802,6 +13831,8 @@ function registerIpc() {
   registerWorkflowsIpc();
   registerSerpentIpc();
   registerReplacementStudioIpc();
+  registerStoryWorkflowIpc();
+  registerMediaToolIpc();
 }
 function registerSerpentIpc() {
   electron.ipcMain.handle("serpent:status", () => serpentHost.getState());
@@ -13989,6 +14020,525 @@ async function registerReplacementStudioIpc() {
           : root,
         position: request.position === "last" ? "last" : "first",
       });
+    },
+    // ── v2:素材探测 / 智能裁剪 / 定时抽帧 / 片段素材化 / 转写 / 克隆 / 合成 ──
+    "rs:probe": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("素材文件不存在");
+      const ffmpegBin = rsFfmpeg();
+      const probe = await rsRunFfmpeg(ffmpegBin, [
+        "-i",
+        request.file,
+        "-f",
+        "null",
+        "-",
+      ]);
+      const stderr = probe.stderr;
+      const durationMatch = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      const durationSec = durationMatch
+        ? parseInt(durationMatch[1]) * 3600 +
+          parseInt(durationMatch[2]) * 60 +
+          parseFloat(durationMatch[3])
+        : null;
+      const sizeMatch = stderr.match(/Video:.*?\s(\d{2,5})x(\d{2,5})/);
+      const inputFormat =
+        (stderr.match(/Input #0, ([^,\n]+)/) || [])[1] || "";
+      const isVideo =
+        !/(png_pipe|image2|jpeg_pipe|webp_pipe|bmp_pipe|tiff_pipe|gif|pam_pipe)/i.test(
+          inputFormat,
+        ) && /Video:\s/.test(stderr);
+      return {
+        durationSec,
+        width: sizeMatch ? parseInt(sizeMatch[1]) : 0,
+        height: sizeMatch ? parseInt(sizeMatch[2]) : 0,
+        isVideo,
+      };
+    },
+    "rs:smart-clip": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("视频文件不存在");
+      const threshold =
+        typeof request.threshold === "number" && request.threshold > 0
+          ? request.threshold
+          : 0.24;
+      const ffmpegBin = rsFfmpeg();
+      const probe = await rsRunFfmpeg(ffmpegBin, [
+        "-i",
+        request.file,
+        "-f",
+        "null",
+        "-",
+      ]);
+      const durationMatch = probe.stderr.match(
+        /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/,
+      );
+      const durationSec = durationMatch
+        ? parseInt(durationMatch[1]) * 3600 +
+          parseInt(durationMatch[2]) * 60 +
+          parseFloat(durationMatch[3])
+        : 0;
+      if (durationSec <= 0) throw new Error("无法读取视频时长");
+      const detect = await rsRunFfmpeg(ffmpegBin, [
+        "-i",
+        request.file,
+        "-vf",
+        `select='gt(scene,${threshold})',showinfo`,
+        "-f",
+        "null",
+        "-",
+      ]);
+      const cuts = [];
+      for (const match of detect.stderr.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)) {
+        const t = parseFloat(match[1]);
+        if (Number.isFinite(t) && t > 0.2 && t < durationSec - 0.2)
+          cuts.push(t);
+      }
+      const boundaries = [
+        0,
+        ...[...new Set(cuts.map((t) => Math.round(t * 100) / 100))].sort(
+          (a, b) => a - b,
+        ),
+        Math.round(durationSec * 100) / 100,
+      ];
+      const minDuration = request.minDuration || 0.8;
+      const shots = [];
+      for (let i = 0; i < boundaries.length - 1; i += 1) {
+        const start = boundaries[i];
+        const end = boundaries[i + 1];
+        const dur = Math.round((end - start) * 100) / 100;
+        if (dur < minDuration) continue;
+        shots.push({
+          startSec: start,
+          endSec: end,
+          durationSec: dur,
+          keyframeTimeSec:
+            Math.round((start + Math.min(0.6, dur * 0.35)) * 100) / 100,
+        });
+      }
+      if (shots.length === 0) {
+        shots.push({
+          startSec: 0,
+          endSec: durationSec,
+          durationSec: Math.round(durationSec * 100) / 100,
+          keyframeTimeSec: 0,
+        });
+      }
+      return { durationSec, shots };
+    },
+    "rs:extract-frame-at": async (request) => {
+      if (!request || !request.file) throw new Error("缺少视频文件");
+      const outputDir2 =
+        request.outputDir ||
+        outputDir() ||
+        node_path.join(
+          electron.app.getPath("userData"),
+          "replacement-studio-frames",
+        );
+      node_fs.mkdirSync(outputDir2, { recursive: true });
+      const target = uniqueOutput(outputDir2, `keyframe-${Date.now()}.png`);
+      const result2 = await rsRunFfmpeg(rsFfmpeg(), [
+        "-y",
+        "-ss",
+        String(Math.max(0, Number(request.timeSec) || 0)),
+        "-i",
+        request.file,
+        "-frames:v",
+        "1",
+        "-update",
+        "1",
+        "-vf",
+        "scale='min(1600,iw)':-2",
+        target,
+      ]);
+      if (!result2.ok || !node_fs.existsSync(target)) {
+        throw new Error(
+          (result2.stderr || "").trim().split(/\r?\n/).slice(-3).join("\n") ||
+            "抽取关键帧失败",
+        );
+      }
+      return { path: target };
+    },
+    "rs:materialize-shot": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("源视频不存在");
+      const outputDir2 =
+        request.outputDir ||
+        outputDir() ||
+        node_path.join(
+          electron.app.getPath("userData"),
+          "replacement-studio-clips",
+        );
+      node_fs.mkdirSync(outputDir2, { recursive: true });
+      const start = Math.max(0, Number(request.startSec) || 0);
+      const duration = Math.max(0.3, Number(request.durationSec) || 1);
+      const target = uniqueOutput(outputDir2, `shot-${Date.now()}.mp4`);
+      const result2 = await rsRunFfmpeg(rsFfmpeg(), [
+        "-y",
+        "-ss",
+        start.toFixed(3),
+        "-i",
+        request.file,
+        "-t",
+        duration.toFixed(3),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        target,
+      ]);
+      if (!result2.ok || !node_fs.existsSync(target))
+        throw new Error(
+          (result2.stderr || "").trim().split(/\r?\n/).slice(-3).join("\n") ||
+            "裁切镜头片段失败",
+        );
+      return { path: target, durationSec: duration };
+    },
+    "rs:transcribe": async (request) => {
+      if (!request || !request.audioPath || !request.providerId)
+        throw new Error("参数不足(缺少音频或中转站)");
+      const result2 = await transcribeWhisper({
+        audioPath: request.audioPath,
+        providerId: request.providerId,
+        model: request.model || "whisper-1",
+        responseFormat: "text",
+        language: request.language || "zh",
+      });
+      return {
+        text: String(result2?.text || ""),
+        outputPath: result2?.outputPath || null,
+      };
+    },
+    "rs:clone-voice": async (request) => {
+      if (!request || !request.text || !request.refAudioPath)
+        throw new Error("参数不足(缺少台词或音色参考)");
+      const root =
+        outputDir() ||
+        node_path.join(
+          electron.app.getPath("userData"),
+          "replacement-studio-voice",
+        );
+      const result2 = await indexTtsClone({
+        text: request.text,
+        refAudioPath: request.refAudioPath,
+        lang: request.lang || "zh",
+        outputDir: request.outputDir || root,
+      });
+      if (result2.error) throw new Error(String(result2.error));
+      return { outputPath: result2.outputPath };
+    },
+    "rs:save-file-dialog": async (request) => {
+      const result2 = await electron.dialog.showSaveDialog({
+        title: request && request.title ? request.title : "保存文件",
+        defaultPath:
+          request && request.defaultName ? request.defaultName : "替换结果.mp4",
+        filters: request && Array.isArray(request.filters)
+          ? request.filters
+          : [{ name: "视频", extensions: ["mp4", "mov", "webm"] }],
+      });
+      return result2.canceled ? "" : result2.filePath;
+    },
+    "rs:compose": async (request) => {
+      if (!request || !Array.isArray(request.shots) || request.shots.length === 0)
+        throw new Error("没有可合成的镜头");
+      const outputDir2 = node_path.dirname(
+        String(request.outputPath || ""),
+      );
+      if (!outputDir2) throw new Error("输出路径不合法");
+      node_fs.mkdirSync(outputDir2, { recursive: true });
+      const ffmpegBin = rsFfmpeg();
+      const tempDir = node_path.join(
+        node_os.tmpdir(),
+        `rs-compose-${Date.now()}`,
+      );
+      node_fs.mkdirSync(tempDir, { recursive: true });
+      try {
+        const parts = [];
+        for (let i = 0; i < request.shots.length; i += 1) {
+          const shot = request.shots[i];
+          const target = node_path.join(
+            tempDir,
+            `part-${String(i).padStart(3, "0")}.mp4`,
+          );
+          const partArgs = ["-y", "-i", shot.videoPath];
+          partArgs.push(
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+          );
+          if (shot.audioPath && node_fs.existsSync(shot.audioPath)) {
+            // 克隆音轨:apad 补足镜头时长后替换原声。
+            partArgs.push(
+              "-i",
+              shot.audioPath,
+              "-filter_complex",
+              "[1:a]apad[a]",
+              "-map",
+              "0:v",
+              "-map",
+              "[a]",
+              "-c:a",
+              "aac",
+              "-b:a",
+              "128k",
+            );
+          } else {
+            partArgs.push("-c:a", "aac", "-b:a", "128k");
+          }
+          partArgs.push("-t", String(shot.durationSec || 1));
+          partArgs.push(target);
+          const part = await rsRunFfmpeg(ffmpegBin, partArgs);
+          if (!part.ok || !node_fs.existsSync(target))
+            throw new Error(
+              "镜头片段转码失败:" + (part.stderr || "").slice(-200),
+            );
+          parts.push(target);
+        }
+        const listFile = node_path.join(tempDir, "list.txt");
+        node_fs.writeFileSync(
+          listFile,
+          parts.map((p) => `file '${p.replace(/\\/g, "/")}'`).join("\n"),
+          "utf8",
+        );
+        const concatArgs = [
+          "-y",
+          "-f",
+          "concat",
+          "-safe",
+          "0",
+          "-i",
+          listFile,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "20",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+        ];
+        concatArgs.push(request.outputPath);
+        const concat = await rsRunFfmpeg(ffmpegBin, concatArgs);
+        if (!concat.ok || !node_fs.existsSync(request.outputPath))
+          throw new Error(
+            (concat.stderr || "").trim().split(/\r?\n/).slice(-4).join("\n") ||
+              "合成视频失败",
+          );
+        return { outputPath: request.outputPath };
+      } finally {
+        try {
+          node_fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch {}
+      }
+    },
+  };
+  for (const [channel, handler] of Object.entries(handlers)) {
+    electron.ipcMain.handle(channel, (_event, ...args) =>
+      handler(...args),
+    );
+  }
+}
+
+/**
+ * 剧本工作室 · 阶段1 (storyboard-script) host bridge。
+ * Serpent 渲染层经其 preload 调用 sw:* 通道:分镜 JSON 由前端
+ * shared/storyboard-script 负责解析,主进程只做「中转站 chat 完成」+ 文本落盘。
+ */
+function storyboardDir() {
+  return node_path.join(
+    electron.app.getPath("userData"),
+    "serpent",
+    "storyboard-script",
+  );
+}
+async function registerStoryWorkflowIpc() {
+  const handlers = {
+    "sw:generate-script": async (request) => {
+      if (!request || !request.providerId || !request.model)
+        throw new Error("参数不足(缺少中转站或模型)");
+      if (!request.user || !String(request.user).trim())
+        throw new Error("缺少故事/文案输入");
+      const result = await sendChat({
+        providerId: request.providerId,
+        model: String(request.model),
+        messages: [
+          {
+            role: "system",
+            content: String(request.system || "").trim() || "你是专业的分镜脚本生成器。",
+          },
+          { role: "user", content: String(request.user) },
+        ],
+        temperature: 0.3,
+        stream: false,
+      });
+      return {
+        text: extractChatText(result),
+        model: String(request.model),
+        providerId: String(request.providerId),
+      };
+    },
+    "sw:save-text": async (request) => {
+      if (!request || typeof request.content !== "string" || !request.content.trim())
+        throw new Error("没有可保存的内容");
+      const dir = outputDir() && node_fs.existsSync(outputDir())
+        ? outputDir()
+        : storyboardDir();
+      node_fs.mkdirSync(dir, { recursive: true });
+      const name = String(request.name || "分镜脚本.txt").replace(/[\\/:*?"<>|]/g, "_");
+      const target = node_path.join(dir, name);
+      node_fs.writeFileSync(target, request.content, "utf8");
+      return { path: target };
+    },
+  };
+  for (const [channel, handler] of Object.entries(handlers)) {
+    electron.ipcMain.handle(channel, (_event, ...args) =>
+      handler(...args),
+    );
+  }
+}
+
+/**
+ * 媒体工具(轻量工具坊) host bridge。
+ * mt:* 通道直接代理主进程既有 utilities 能力(宫格拆分/拼图拼接/批注导出),
+ * 输出目录复用「存储设置 → 输出文件夹」,落盘后 Serpent 生成资产自动可见。
+ */
+async function registerMediaToolIpc() {
+  const handlers = {
+    "mt:split-grid": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("图片文件不存在");
+      const rows = Math.max(1, Math.min(16, Math.round(Number(request.rows) || 1)));
+      const cols = Math.max(1, Math.min(16, Math.round(Number(request.cols) || 1)));
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      return splitImages({
+        files: [request.file],
+        rows,
+        cols,
+        outputDir: dir,
+        format: ["png", "jpg", "webp"].includes(request.format)
+          ? request.format
+          : "png",
+        indexes: Array.isArray(request.indexes) ? request.indexes : void 0,
+      });
+    },
+    "mt:stitch-grid": async (request) => {
+      if (!request || !request.first || !request.second)
+        throw new Error("拼图需要两张图片");
+      if (!node_fs.existsSync(request.first) || !node_fs.existsSync(request.second))
+        throw new Error("拼图图片不存在");
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      return stitchImages({
+        first: request.first,
+        second: request.second,
+        direction: request.direction === "vertical" ? "vertical" : "horizontal",
+        cropSecond: request.cropSecond === "manual" ? "manual" : "auto",
+        cropRegion: request.cropRegion,
+        outputDir: dir,
+        format: ["png", "jpg", "webp"].includes(request.format)
+          ? request.format
+          : "png",
+      });
+    },
+    "mt:save-annotation": async (request) => {
+      if (!request || !request.dataUrl) throw new Error("缺少批注图像数据");
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      return saveCanvasAnnotation({
+        dataUrl: request.dataUrl,
+        sourceName: String(request.sourceName || "annotation"),
+        outputDir: dir,
+      });
+    },
+    "mt:collage": async (request) => {
+      if (!request || !Array.isArray(request.files) || request.files.length < 2)
+        throw new Error("拼图需要至少 2 张图片");
+      const files = request.files.slice(0, 12);
+      for (const file of files) {
+        if (!node_fs.existsSync(file)) throw new Error(`图片不存在:${file}`);
+      }
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      const format = ["png", "jpg", "webp"].includes(request.format)
+        ? request.format
+        : "png";
+      // 布局:2 图按 direction;3+ 图自动近方形网格,最后一行靠左。
+      const count = files.length;
+      let cols;
+      let rows;
+      if (count === 2) {
+        if (request.direction === "vertical") {
+          cols = 1;
+          rows = 2;
+        } else {
+          cols = 2;
+          rows = 1;
+        }
+      } else {
+        cols = Math.ceil(Math.sqrt(count));
+        rows = Math.ceil(count / cols);
+      }
+      const buffers = [];
+      const metas = [];
+      for (const file of files) {
+        const buffer = await sharp(file).rotate().toBuffer();
+        const meta = await sharp(buffer).metadata();
+        buffers.push(buffer);
+        metas.push(meta);
+      }
+      const cellWidth = Math.max(...metas.map((meta) => meta.width || 1));
+      const cellHeight = Math.max(...metas.map((meta) => meta.height || 1));
+      const width = cellWidth * cols;
+      const height = cellHeight * rows;
+      const composite = files.map((file, index) => ({
+        input: buffers[index],
+        left: (index % cols) * cellWidth,
+        top: Math.floor(index / cols) * cellHeight,
+        width: cellWidth,
+        height: cellHeight,
+        fit: "cover",
+        position: "centre",
+      }));
+      const canvas = sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 18, g: 20, b: 28, alpha: 1 },
+        },
+      }).composite(composite);
+      const outputPath = node_path.join(
+        dir,
+        `${safeBase(files[0])}_collage_${/* @__PURE__ */ Date.now()}.${format}`,
+      );
+      if (format === "png") await canvas.png({ compressionLevel: 8 }).toFile(outputPath);
+      if (format === "jpg")
+        await canvas.jpeg({ quality: 96, mozjpeg: true }).toFile(outputPath);
+      if (format === "webp") await canvas.webp({ quality: 96 }).toFile(outputPath);
+      return result([outputPath], `拼图已生成(${count} 图 ${cols}×${rows})`);
     },
   };
   for (const [channel, handler] of Object.entries(handlers)) {

@@ -21,6 +21,8 @@
 
   const ENTRY_CLASS = "yuh-serpent-entry";
   const REPLACEMENT_ENTRY_CLASS = "yuh-replacement-entry";
+  // 后续嵌入子视图入口(剧本工作室 / 媒体工具)共用类,与资源管理区分高亮。
+  const STUDIO_ENTRY_CLASS = "yuh-studio-entry";
   // 图标：近似 lucide “library-big”（两侧书本造型的档案库）
   const ICON_LIBRARY_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -34,10 +36,24 @@
     'stroke-linecap="round" stroke-linejoin="round" width="19" height="19" aria-hidden="true">' +
     '<path d="m2 9 3-3 3 3"/><path d="M13 18H7a2 2 0 0 1-2-2V6"/><path d="m22 15-3 3-3-3"/><path d="M11 6h6a2 2 0 0 1 2 2v10"/>' +
     "</svg>";
+  // 图标：近似 lucide “clapperboard”（剧本/分镜）
+  const ICON_SCRIPT_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" width="19" height="19" aria-hidden="true">' +
+    '<path d="M20.2 6c-1.1-1.3-2.4-2.5-3.6-3.7l-12.9 7.5 3.5 3.5"/>' +
+    '<path d="M20.2 6 4 22.2c-.4-.4-2-1.9-2.8-3l-1-1.2c-.6-.8.2-1.7 1-1.1l1.1.9c1 .8 2.1 1.7 2.8 3"/>' +
+    '<path d="M20.2 6c.7.7 1.3 1.6 1.8 2.7l-14.5 8"/><path d="M10 11.5 13 15"/>' +
+    "</svg>";
+  // 图标：近似 lucide “layout-grid”（宫格/媒体工具）
+  const ICON_TOOLS_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" width="19" height="19" aria-hidden="true">' +
+    '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/>' +
+    '<rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>' +
+    "</svg>";
 
-  // 替换工作室是 Serpent 视图内的独立子视图(studioActive 表示其是否打开),
-  // 与资源管理共用同一个嵌入 Serpent 视图;两者互斥高亮。
-  let studioActive = false;
+  // 当前打开的嵌入子视图 id(null = 资源库视图);各子视图与资源管理互斥高亮。
+  let activeSubView = null;
 
   // 注入按钮样式（尽力对齐 .left-rail button 视觉；避免直接改原版 CSS 文件）
   function ensureStyles() {
@@ -47,14 +63,18 @@
     style.id = id;
     style.textContent =
       "aside.left-rail button." + ENTRY_CLASS + " svg, " +
-      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + " svg { width: 18px; height: 18px; " +
+      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + " svg, " +
+      "aside.left-rail button." + STUDIO_ENTRY_CLASS + " svg { width: 18px; height: 18px; " +
       "flex: 0 0 18px; }" +
       "aside.left-rail button." + ENTRY_CLASS + ".busy, " +
-      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + ".busy { opacity: .55; pointer-events: none; }" +
+      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + ".busy, " +
+      "aside.left-rail button." + STUDIO_ENTRY_CLASS + ".busy { opacity: .55; pointer-events: none; }" +
       "aside.left-rail button." + ENTRY_CLASS + ":disabled, " +
-      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + ":disabled { opacity: .45; }" +
+      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + ":disabled, " +
+      "aside.left-rail button." + STUDIO_ENTRY_CLASS + ":disabled { opacity: .45; }" +
       "aside.left-rail button." + ENTRY_CLASS + " span, " +
-      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + " span { pointer-events: none; }";
+      "aside.left-rail button." + REPLACEMENT_ENTRY_CLASS + " span, " +
+      "aside.left-rail button." + STUDIO_ENTRY_CLASS + " span { pointer-events: none; }";
     document.head.appendChild(style);
   }
 
@@ -63,6 +83,7 @@
     btn.type = "button";
     btn.className = config.cls;
     btn.dataset.entry = config.dataEntry;
+    btn.dataset.entryLabel = config.label;
     btn.title = config.title;
     btn.innerHTML = config.icon + "<span>" + config.label + "</span>";
     btn.addEventListener("click", (event) => {
@@ -79,28 +100,64 @@
     return btn;
   }
 
+  // 子视图入口统一点击行为:
+  //   再次点击当前子视图 → 收起 Serpent 视图(回到 YUH 原界面);
+  //   点击其它子视图 → openView(viewId) 切换(不收起 Serpent)。
+  function subViewClick(viewId) {
+    return function (a, btn) {
+      if (activeSubView === viewId) {
+        activeSubView = null;
+        setEntryActive(btn, false);
+        return a.hide ? a.hide() : undefined;
+      }
+      const open = a.openView
+        ? a.openView(viewId)
+        : a.show
+          ? a.show()
+          : undefined;
+      return Promise.resolve(open).then((ok) => {
+        activeSubView = Boolean(ok) ? viewId : null;
+        syncButtons();
+      });
+    };
+  }
+
   function entryConfigs() {
     return [
+      {
+        cls: STUDIO_ENTRY_CLASS,
+        dataEntry: "storyboard-script",
+        title: "剧本工作室",
+        label: "剧本工作室",
+        icon: ICON_SCRIPT_SVG,
+        onClick: subViewClick("storyboard-script"),
+      },
+      {
+        cls: STUDIO_ENTRY_CLASS,
+        dataEntry: "media-tools",
+        title: "媒体工具",
+        label: "媒体工具",
+        icon: ICON_TOOLS_SVG,
+        onClick: subViewClick("media-tools"),
+      },
       {
         cls: REPLACEMENT_ENTRY_CLASS,
         dataEntry: "replacement-studio",
         title: "替换工作室",
         label: "替换工作室",
         icon: ICON_SWAP_SVG,
-        onClick(a, btn) {
-          if (studioActive) {
-            // 再次点击：收起 Serpent 视图（回到 YUH 原界面）
-            studioActive = false;
-            setEntryActive(btn, false);
-            return a.hide ? a.hide() : undefined;
-          }
+        // 与其它子视图不同:替换工作室 always-open(幂等)。
+        // 原因:Serpent 渲染层可能因重载/崩溃重置视图状态,若沿用
+        // “再点一次=收起”的切换语义,页面重载后点按钮会变成隐藏。
+        onClick(a) {
+          activeSubView = "replacement-studio";
           const open = a.openView
             ? a.openView("replacement-studio")
             : a.show
               ? a.show()
               : undefined;
           return Promise.resolve(open).then((ok) => {
-            studioActive = Boolean(ok);
+            activeSubView = Boolean(ok) ? "replacement-studio" : null;
             syncButtons();
           });
         },
@@ -112,9 +169,9 @@
         label: "资源管理",
         icon: ICON_LIBRARY_SVG,
         onClick(a) {
-          if (studioActive) {
-            // 替换工作室已打开：切回资源库视图（保持 Serpent 可见）。
-            studioActive = false;
+          if (activeSubView) {
+            // 子视图已打开：切回资源库视图（保持 Serpent 可见）。
+            activeSubView = null;
             const close = a.openView ? a.openView("serpent") : null;
             return Promise.resolve(close);
           }
@@ -133,7 +190,7 @@
       if (!btn) {
         btn = makeEntryButton(config);
         // 插入到“无限画布”之后、rail-divider（实用工具分组线）之前：
-        // 替换工作室在资源管理上方，资源管理保持最后一位。
+        // 各工作室入口在资源管理上方，资源管理保持最后一位。
         const divider = nav.querySelector(".rail-divider");
         if (divider && divider.parentNode === nav) {
           nav.insertBefore(btn, divider);
@@ -144,6 +201,23 @@
       created.push(btn);
     }
     return created;
+  }
+
+  /** 当前 Serpent 内各入口按钮(按 dataEntry 索引)。 */
+  function entryMap() {
+    const map = {};
+    for (const btn of ensureEntries()) map[btn.dataset.entry] = btn;
+    return map;
+  }
+
+  /** 是否为本脚本注入的侧栏按钮(高亮互斥时跳过)。 */
+  function isOwnEntryBtn(btn) {
+    return Boolean(
+      btn &&
+        (btn.classList.contains(ENTRY_CLASS) ||
+          btn.classList.contains(REPLACEMENT_ENTRY_CLASS) ||
+          btn.classList.contains(STUDIO_ENTRY_CLASS)),
+    );
   }
 
   let syncingActive = false; // 当前 Serpent 视图是否可见（高亮互斥依据）
@@ -157,11 +231,15 @@
   }
 
   function syncButtons() {
-    const [replacementBtn, resourceBtn] = ensureEntries();
-    setEntryActive(replacementBtn, syncingActive && studioActive);
-    setEntryActive(resourceBtn, syncingActive && !studioActive);
-    if (resourceBtn && replacementBtn) {
-      resourceBtn.disabled = studioActive;
+    const entries = entryMap();
+    const resourceBtn = entries.serpent;
+    for (const [entryId, btn] of Object.entries(entries)) {
+      if (entryId === "serpent") continue;
+      setEntryActive(btn, syncingActive && activeSubView === entryId);
+    }
+    setEntryActive(resourceBtn, syncingActive && !activeSubView);
+    if (resourceBtn) {
+      resourceBtn.disabled = Boolean(activeSubView);
     }
   }
 
@@ -170,8 +248,7 @@
     if (!nav) return;
     if (resetRecord) lastYuhActiveButton = null;
     for (const button of nav.querySelectorAll("button")) {
-      if (button.classList.contains(ENTRY_CLASS)) continue;
-      if (button.classList.contains(REPLACEMENT_ENTRY_CLASS)) continue;
+      if (isOwnEntryBtn(button)) continue;
       if (button.classList.contains("active")) {
         if (!lastYuhActiveButton) lastYuhActiveButton = button;
         button.classList.remove("active");
@@ -186,7 +263,7 @@
     const nav = document.querySelector("aside.left-rail nav");
     if (!nav) return;
     const yuhButtons = [...nav.querySelectorAll("button")].filter(
-      (b) => !b.classList.contains(ENTRY_CLASS),
+      (b) => !isOwnEntryBtn(b),
     );
     const hasActive = yuhButtons.some((b) => b.classList.contains("active"));
     if (
@@ -206,31 +283,34 @@
   }
 
   function syncState(state) {
-    const [replacementBtn, resourceBtn] = ensureEntries();
+    const entries = entryMap();
     const enabled = Boolean(state && state.enabled);
     const active = Boolean(state && state.visible);
     syncingActive = active;
     if (!active) {
-      // Serpent 不可见时替换工作室必然未打开（隐藏即退出视图）。
-      studioActive = false;
+      // Serpent 不可见时子视图必然未打开（隐藏即退出视图）。
+      activeSubView = null;
     }
-    if (replacementBtn) {
-      replacementBtn.classList.toggle("active", active && studioActive);
-      replacementBtn.disabled = !enabled;
-      replacementBtn.title = !enabled
-        ? "替换工作室（Serpent 当前不可用）"
-        : active && studioActive
-          ? "替换工作室（点击收起）"
-          : "替换工作室";
+    for (const [entryId, btn] of Object.entries(entries)) {
+      if (entryId === "serpent") continue;
+      const isOpen = active && activeSubView === entryId;
+      btn.classList.toggle("active", isOpen);
+      btn.disabled = !enabled;
+      btn.title = !enabled
+        ? `${btn.dataset.entryLabel || entryId}（Serpent 当前不可用）`
+        : isOpen
+          ? `${btn.dataset.entryLabel || entryId}（点击收起）`
+          : btn.dataset.entryLabel || entryId;
     }
+    const resourceBtn = entries.serpent;
     if (resourceBtn) {
-      resourceBtn.classList.toggle("active", active && !studioActive);
+      resourceBtn.classList.toggle("active", active && !activeSubView);
       resourceBtn.disabled = !enabled;
       resourceBtn.title = !enabled
         ? "资源管理（Serpent 当前不可用）"
-        : active && !studioActive
+        : active && !activeSubView
           ? "资源管理（点击返回 YUH Studio）"
-          : active && studioActive
+          : active && activeSubView
             ? "资源管理（点击返回素材库）"
             : "资源管理（Serpent 素材库）";
     }
@@ -257,9 +337,8 @@
           event.target.closest &&
           event.target.closest("aside.left-rail nav button");
         if (!navBtn) return;
-        if (navBtn.classList.contains(ENTRY_CLASS)) return;
-        if (navBtn.classList.contains(REPLACEMENT_ENTRY_CLASS)) return;
-        studioActive = false;
+        if (isOwnEntryBtn(navBtn)) return;
+        activeSubView = null;
         const a = api();
         if (a) a.hide && a.hide().catch(() => {});
       },
@@ -355,7 +434,7 @@
         let activeYuh = null;
         if (nav) {
           for (const button of nav.querySelectorAll("button")) {
-            if (button.classList.contains(ENTRY_CLASS)) continue;
+            if (isOwnEntryBtn(button)) continue;
             if (button.classList.contains("active")) {
               activeYuh = button;
               break;

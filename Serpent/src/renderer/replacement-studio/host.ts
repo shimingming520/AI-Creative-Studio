@@ -86,6 +86,7 @@ export interface RsHostApi {
   // --- 文件 ---
   pickImages(multiple?: boolean): Promise<RsFilePick[]>;
   pickVideo(): Promise<RsFilePick[]>;
+  pickFiles(): Promise<RsFilePick[]>;
   thumbnail(path: string, width?: number): Promise<string | null>;
   readImage(path: string): Promise<string>;
   saveDataImage(request: { dataUrl: string; name: string }): Promise<{ path: string }>;
@@ -113,6 +114,47 @@ export interface RsHostApi {
   // --- 系统 ---
   showItem(path: string): Promise<unknown>;
   openPath(path: string): Promise<unknown>;
+
+  // --- v2:视频分析/合成链路 ---
+  probe(request: {
+    file: string;
+  }): Promise<{ durationSec: number | null; width: number; height: number; isVideo: boolean }>;
+  smartClip(request: {
+    file: string;
+    threshold?: number;
+    minDuration?: number;
+  }): Promise<{
+    durationSec: number;
+    shots: { startSec: number; endSec: number; durationSec: number; keyframeTimeSec: number }[];
+  }>;
+  extractFrameAt(request: { file: string; timeSec: number; outputDir?: string }): Promise<{ path: string }>;
+  materializeShot(request: {
+    file: string;
+    startSec: number;
+    durationSec: number;
+    outputDir?: string;
+  }): Promise<{ path: string; durationSec: number }>;
+  transcribe(request: {
+    audioPath: string;
+    providerId: string;
+    model?: string;
+    language?: string;
+  }): Promise<{ text: string; outputPath?: string | null }>;
+  cloneVoice(request: {
+    text: string;
+    refAudioPath: string;
+    lang?: string;
+    outputDir?: string;
+  }): Promise<{ outputPath: string }>;
+  saveFileDialog(request: {
+    title?: string;
+    defaultName?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }): Promise<string>;
+  compose(request: {
+    shots: { videoPath: string; durationSec: number; audioPath?: string | null }[];
+    outputPath: string;
+  }): Promise<{ outputPath: string }>;
 }
 
 type SerpentWindow = Window & {

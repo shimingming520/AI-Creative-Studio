@@ -2,7 +2,7 @@
  * 位置标注图生成(人物字母 + 彩色边框) — 渲染层 canvas 绘制,经
  * host.saveDataImage 落盘后作为云图生成参考图之一。
  */
-import type { RsBbox, RsSourceCharacter } from "../../shared/replacement-studio";
+import type { RsBbox } from "../../shared/replacement-studio";
 
 export type RsGuideBox = {
   letter: string;
@@ -28,7 +28,7 @@ export function guideColor(index: number): string {
 }
 
 export function guideBoxesForCharacters(
-  characters: RsSourceCharacter[],
+  characters: { label: string; bbox: RsBbox; targetCharacterId?: string | null }[],
 ): RsGuideBox[] {
   return characters.map((c, index) => {
     const letter = c.label.replace(/^人物/, "") || (GUIDE_LETTERS[index] ?? "A");

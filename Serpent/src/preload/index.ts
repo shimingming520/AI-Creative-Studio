@@ -2955,8 +2955,25 @@ const HOST_INVOKE_CHANNELS = new Set([
   'rs:detect-people',
   'rs:save-data-image',
   'rs:extract-frame',
+  'rs:probe',
+  'rs:smart-clip',
+  'rs:extract-frame-at',
+  'rs:materialize-shot',
+  'rs:transcribe',
+  'rs:clone-voice',
+  'rs:save-file-dialog',
+  'rs:compose',
+  // 剧本工作室(阶段1:分镜脚本生成)
+  'sw:generate-script',
+  'sw:save-text',
+  // 媒体工具(宫格/拼图/白板导出)
+  'mt:split-grid',
+  'mt:stitch-grid',
+  'mt:collage',
+  'mt:save-annotation',
   'utilities:pick-images',
   'utilities:pick-video',
+  'utilities:pick-files',
   'providers:list',
   'providers:models',
   'workspace:get',
@@ -2999,6 +3016,7 @@ const host = Object.freeze({
   projectDelete: (id: string) => hostInvoke('rs:project-delete', id),
   pickImages: (multiple?: boolean) => hostInvoke('utilities:pick-images', Boolean(multiple)),
   pickVideo: () => hostInvoke('utilities:pick-video'),
+  pickFiles: () => hostInvoke('utilities:pick-files'),
   thumbnail: (path: string, width?: number) => hostInvoke('files:thumbnail', path, width),
   readImage: (path: string) => hostInvoke('files:read-as-data-url', path),
   saveDataImage: (request: { dataUrl: string; name: string }) =>
@@ -3017,6 +3035,30 @@ const host = Object.freeze({
   workspace: () => hostInvoke('workspace:get'),
   showItem: (path: string) => hostInvoke('shell:show-item', path),
   openPath: (path: string) => hostInvoke('shell:open-path', path),
+
+  // --- v2:视频分析/合成链路 ---
+  probe: (request: unknown) => hostInvoke('rs:probe', request),
+  smartClip: (request: unknown) => hostInvoke('rs:smart-clip', request),
+  extractFrameAt: (request: unknown) => hostInvoke('rs:extract-frame-at', request),
+  materializeShot: (request: unknown) => hostInvoke('rs:materialize-shot', request),
+  transcribe: (request: unknown) => hostInvoke('rs:transcribe', request),
+  cloneVoice: (request: unknown) => hostInvoke('rs:clone-voice', request),
+  saveFileDialog: (request: unknown) => hostInvoke('rs:save-file-dialog', request),
+  compose: (request: unknown) => hostInvoke('rs:compose', request),
+
+  // --- 剧本工作室(阶段1:分镜脚本生成) ---
+  sw: Object.freeze({
+    generateScript: (request: unknown) => hostInvoke('sw:generate-script', request),
+    saveText: (request: unknown) => hostInvoke('sw:save-text', request),
+  }),
+
+  // --- 媒体工具(宫格/拼图/白板导出,复用 YUH utilities 能力) ---
+  mt: Object.freeze({
+    splitGrid: (request: unknown) => hostInvoke('mt:split-grid', request),
+    stitchGrid: (request: unknown) => hostInvoke('mt:stitch-grid', request),
+    collage: (request: unknown) => hostInvoke('mt:collage', request),
+    saveAnnotation: (request: unknown) => hostInvoke('mt:save-annotation', request),
+  }),
 });
 
 contextBridge.exposeInMainWorld(

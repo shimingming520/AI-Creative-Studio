@@ -1,15 +1,31 @@
 /**
- * 步骤 1 · 素材设定:基础素材(图片/视频)+ 目标形象(角色与参考形象)管理。
+ * 步骤 1 · 素材设定 v2:导入素材 → 智能裁剪(FFmpeg 场景检测)切分镜头 →
+ * 逐镜头关键帧检测人物(视觉大模型) → 跨镜头聚类身份 → 目标角色绑定。
+ * 布局:左=素材库(人物/场景/音频/总素材) 中=源素材+分析 右=检测/身份绑定。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  clusterPeople,
+  letterAt,
+  labelForLetter,
+  parseDetectedPeople,
   rsId,
-  type RsAppearance,
-  type RsBaseAsset,
+  RS_SMART_CLIP_MODES,
+  RS_SMART_CLIP_THRESHOLDS,
+  type RsAudioAsset,
+  type RsPerson,
   type RsProject,
+  type RsScene,
+  type RsShot,
+  type RsSmartClipMode,
+  type RsSource,
+  type RsSourceCharacter,
   type RsTargetCharacter,
 } from "../../shared/replacement-studio";
-import { ensureHostApi, errorText } from "./host";
+import { ensureHostApi, errorText, type RsProviderInfo } from "./host";
+import { BindingList, ShotTimeline, TargetRail, formatPrecise, type RsAssetTab } from "./StudioParts";
+
+const ALLOWED_VIDEO_EXT = /\.(mp4|mov|mkv|webm|avi)$/i;
 
 export function StudioMaterialStep({
   project,
@@ -20,27 +36,47 @@ export function StudioMaterialStep({
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [basePreview, setBasePreview] = useState<string | null>(null);
+  const [providers, setProviders] = useState<RsProviderInfo[]>([]);
+  const [tab, setTab] = useState<RsAssetTab>("character");
+  const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+  const [selectedShotPreview, setSelectedShotPreview] = useState<string | null>(null);
+
+  const source = project.sources[0] ?? null;
+  const [focusedShotId, setFocusedShotId] = useState<string | null>(null);
+  const selectedShot =
+    project.shots.find((s) => s.id === focusedShotId) ?? project.shots[0] ?? null;
+
+  useEffect(() => {
+    void ensureHostApi()
+      .then((host) => host.listProviders())
+      .then((list) => setProviders((list || []).filter((p) => p.enabled && p.hasApiKey)))
+      .catch(() => void 0);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const path = project.base?.keyframePath;
+    const path = selectedShot?.keyframePath;
     if (!path) {
-      setBasePreview(null);
+      setSelectedShotPreview(null);
       return;
     }
     void ensureHostApi()
       .then((host) => host.readImage(path))
-      .then((dataUrl) => {
-        if (!cancelled) setBasePreview(dataUrl);
+      .then((url) => {
+        if (!cancelled) setSelectedShotPreview(url);
       })
       .catch(() => {
-        if (!cancelled) setBasePreview(null);
+        if (!cancelled) setSelectedShotPreview(null);
       });
     return () => {
       cancelled = true;
     };
-  }, [project.base?.keyframePath]);
+  }, [selectedShot?.keyframePath]);
+
+  const appendLog = useCallback((line: string) => {
+    setLog((cur) => [...cur.slice(-40), line]);
+  }, []);
 
   const run = useCallback(
     async (label: string, fn: () => Promise<void>) => {
@@ -57,172 +93,304 @@ export function StudioMaterialStep({
     [],
   );
 
-  const chooseBaseImage = () =>
-    run("选择图片", async () => {
+  // -------- 素材导入 --------
+  const pickSource = (kind: "video" | "image") =>
+    run(`选择${kind === "video" ? "视频" : "图片"}`, async () => {
       const host = await ensureHostApi();
-      const picked = await host.pickImages(false);
-      if (!picked?.[0]) return;
-      const file = picked[0];
-      const next: RsBaseAsset = {
-        kind: "image",
+      const picked = kind === "video" ? await host.pickVideo() : await host.pickImages(false);
+      const file = picked?.[0];
+      if (!file) return;
+      const probe = await host.probe({ file: file.path });
+      const newSource: RsSource = {
+        id: rsId("src"),
         path: file.path,
         name: file.name,
-        keyframePath: file.path,
-        width: 0,
-        height: 0,
-        durationSec: null,
+        kind: probe.isVideo ? "video" : kind,
+        durationSec: probe.durationSec,
+        width: probe.width,
+        height: probe.height,
+        keyframePath: null,
+        analysisStatus: "idle",
+        analysisError: null,
       };
-      await onChange((project) => ({ ...project, base: next, shots: [makeShot(next)] }));
-    });
-
-  const chooseBaseVideo = () =>
-    run("选择视频", async () => {
-      const host = await ensureHostApi();
-      const picked = await host.pickVideo();
-      if (!picked?.[0]) return;
-      const file = picked[0];
-      const keyframe = await extractKeyframe(host, file.path, "first");
-      const next: RsBaseAsset = {
-        kind: "video",
-        path: file.path,
-        name: file.name,
-        keyframePath: keyframe,
-        width: 0,
-        height: 0,
-        durationSec: null,
-      };
-      await onChange((project) => ({ ...project, base: next, shots: [makeShot(next)] }));
-    });
-
-  const reExtract = () =>
-    run("抽取关键帧", async () => {
-      const base = project.base;
-      if (!base || base.kind !== "video") return;
-      const host = await ensureHostApi();
-      const keyframe = await extractKeyframe(host, base.path, "first");
-      const next = { ...base, keyframePath: keyframe };
-      await onChange((project) => ({
-        ...project,
-        base: next,
-        shots: project.shots.map((shot, index) =>
-          index === 0 ? { ...shot, keyframePath: keyframe } : shot,
-        ),
+      await onChange((p) => ({
+        ...p,
+        sources: [newSource],
+        shots: [],
+        sourceCharacters: [],
+        compose: { ...p.compose, finalVideoPath: null, finalAudioPath: null, status: "idle", error: null, composedShotIds: [] },
       }));
+      if (!probe.isVideo) {
+        await onChange((p) => ({
+          ...p,
+          sources: p.sources.map((s) => (s.id === newSource.id ? { ...s, keyframePath: file.path, analysisStatus: "done" as const } : s)),
+          shots: [makeShotForImage(file.path)],
+        }));
+        appendLog(`已导入图片素材: ${file.name}`);
+      } else {
+        appendLog(`已导入视频素材: ${file.name}（${probe.durationSec?.toFixed(1)}s）`);
+      }
     });
 
+  // -------- 智能裁剪 + 逐镜头关键帧 + 检测 + 聚类 --------
+  const analyze = () =>
+    run("分析素材", async () => {
+      if (!source) throw new Error("请先导入视频或图片");
+      const host = await ensureHostApi();
+      appendLog("1/4 开始智能裁剪（FFmpeg 场景检测）…");
+      if (source.kind === "image") {
+        await onChange((p) => ({
+          ...p,
+          sources: p.sources.map((s) => (s.id === source.id ? { ...s, keyframePath: source.path, analysisStatus: "done" as const } : s)),
+          shots: [makeShotForImage(source.path)],
+        }));
+        appendLog("图片素材: 使用整图作为单一镜头");
+        return;
+      }
+      const clip = await host.smartClip({
+        file: source.path,
+        threshold: RS_SMART_CLIP_THRESHOLDS[project.settings.smartClipMode],
+      });
+      const shotMeta = clip.shots.map((s, index) =>
+        makeShotFromMeta(s, source.id, index + 1),
+      );
+      await onChange((p) => ({
+        ...p,
+        sources: p.sources.map((s) => (s.id === source.id ? { ...s, analysisStatus: "running" as const } : s)),
+        shots: shotMeta,
+      }));
+      appendLog(`智能裁剪完成: ${shotMeta.length} 个镜头`);
+
+      appendLog("2/4 逐镜头抽取关键帧…");
+      const keyframes: Record<string, string> = {};
+      let shotIndex = 0;
+      for (const shot of shotMeta) {
+        shotIndex += 1;
+        const frame = await host.extractFrameAt({ file: source.path, timeSec: shot.keyframeTimeSec });
+        keyframes[shot.id] = frame.path;
+        await onChange((p) => ({
+          ...p,
+          shots: p.shots.map((s) => (s.id === shot.id ? { ...s, keyframePath: frame.path } : s)),
+        }));
+        appendLog(`  镜头 ${shotIndex}/${shotMeta.length} 关键帧完成`);
+      }
+
+      const detectPrompt = project.settings.detectPrompt.trim() || "列出图片中所有人物";
+      if (!project.settings.detectProviderId || !project.settings.detectModel.trim()) {
+        appendLog("3/4 跳过人物检测（请先配置检测中转站与模型）");
+        await finishAnalysis();
+        return;
+      }
+      appendLog(`3/4 逐镜头检测人物（${project.settings.detectModel}）…`);
+      const clusterInput = [];
+      for (const shot of shotMeta) {
+        const keyframePath = keyframes[shot.id];
+        if (!keyframePath) continue;
+        try {
+          const result = await host.detectPeople({
+            providerId: project.settings.detectProviderId,
+            model: project.settings.detectModel.trim(),
+            prompt: detectPrompt,
+            imagePath: keyframePath,
+          });
+          const detected = parseDetectedPeople(result?.text || "");
+          const people: RsPerson[] = detected.map((d, index) => ({
+            id: rsId("ps"),
+            letter: letterAt(RS_LETTER_IDX(d.labelHint, index)),
+            label: labelForLetter(letterAt(RS_LETTER_IDX(d.labelHint, index))),
+            bbox: d.bbox,
+            description: d.description,
+            confidence: d.confidence,
+            method: "auto",
+            sourceCharacterId: null,
+          }));
+          for (const person of people) {
+            clusterInput.push({
+              shotId: shot.id,
+              personId: person.id,
+              letter: person.letter,
+              description: person.description,
+              bbox: person.bbox,
+            });
+          }
+          await onChange((p) => ({
+            ...p,
+            shots: p.shots.map((s) =>
+              s.id === shot.id ? { ...s, people, detectionStatus: "done" as const, detectionError: null } : s,
+            ),
+          }));
+          appendLog(`  镜头 ${shot.label}: ${people.length} 人`);
+        } catch (reason) {
+          await onChange((p) => ({
+            ...p,
+            shots: p.shots.map((s) =>
+              s.id === shot.id ? { ...s, detectionStatus: "error" as const, detectionError: errorText(reason) } : s,
+            ),
+          }));
+          appendLog(`  镜头 ${shot.label} 检测失败: ${errorText(reason)}`);
+        }
+      }
+
+      appendLog("4/4 跨镜头身份聚类…");
+      const clusters: RsSourceCharacter[] = clusterPeople(clusterInput).map((c) => ({
+        id: c.sourceCharacterId,
+        letter: c.letter,
+        label: c.label,
+        personIds: c.personIds,
+        description: c.description,
+        scope: "full-person",
+        targetCharacterId: null,
+        targetAppearanceId: null,
+      }));
+      await applyClusters(clusters);
+      await finishAnalysis();
+      appendLog(`分析完成: ${shotMeta.length} 个镜头, ${clusters.length} 个身份, 请在右侧绑定目标角色`);
+    });
+
+  const applyClusters = async (clusters: RsSourceCharacter[]) =>
+    onChange((p) => ({
+      ...p,
+      sourceCharacters: clusters.map((c) => ({
+        ...c,
+        scope: "full-person" as const,
+        targetCharacterId: null,
+        targetAppearanceId: null,
+      })),
+      shots: p.shots.map((s) => ({
+        ...s,
+        people: s.people.map((person) => {
+          const cluster = clusters.find((c) => c.personIds.includes(person.id));
+          return cluster ? { ...person, sourceCharacterId: cluster.id } : person;
+        }),
+      })),
+    }));
+
+  const finishAnalysis = async () =>
+    onChange((p) => ({
+      ...p,
+      sources: p.sources.map((s) => (s.id === source?.id ? { ...s, analysisStatus: "done" as const } : s)),
+    }));
+
+  // -------- 素材库管理 --------
   const addCharacter = () =>
-    run("添加角色", async () => {
+    run("新建角色", async () => {
       const character: RsTargetCharacter = {
         id: rsId("char"),
-        name: `角色${project.targetCharacters.length + 1}`,
+        name: `角色${project.characters.length + 1}`,
+        role: "",
         description: "",
         appearances: [],
+        boundLetters: [],
       };
-      await onChange((project) => ({
-        ...project,
-        targetCharacters: [...project.targetCharacters, character],
-      }));
+      await onChange((p) => ({ ...p, characters: [...p.characters, character] }));
     });
-
-  const addAppearance = async (characterId: string) => {
-    await run("添加形象", async () => {
+  const addAppearance = (characterId: string) =>
+    run("添加形象", async () => {
       const host = await ensureHostApi();
       const picked = await host.pickImages(true);
       if (!picked?.length) return;
-      const appearances = picked.map((file) => ({
+      const appearances = picked.map((f) => ({
         id: rsId("appa"),
-        name: file.name.replace(/\.[^.]+$/, ""),
-        imagePath: file.path,
+        name: f.name.replace(/\.[^.]+$/, ""),
+        imagePath: f.path,
         prompt: "",
       }));
-      await onChange((project) => ({
-        ...project,
-        targetCharacters: project.targetCharacters.map((c) =>
-          c.id === characterId
-            ? { ...c, appearances: [...c.appearances, ...appearances] }
-            : c,
-        ),
+      await onChange((p) => ({
+        ...p,
+        characters: p.characters.map((c) => (c.id === characterId ? { ...c, appearances: [...c.appearances, ...appearances] } : c)),
       }));
+    });
+  const addScene = () =>
+    run("新建场景", async () => {
+      const host = await ensureHostApi();
+      const picked = await host.pickImages(false);
+      if (!picked?.[0]) return;
+      const scene: RsScene = { id: rsId("scene"), name: picked[0].name.replace(/\.[^.]+$/, ""), description: "", imagePath: picked[0].path };
+      await onChange((p) => ({ ...p, scenes: [...p.scenes, scene] }));
+    });
+  const addAudio = () =>
+    run("添加音频", async () => {
+      const host = await ensureHostApi();
+      const picked = await host.pickFiles();
+      const files = (picked || []).filter((f) => /\.(mp3|wav|m4a|flac|ogg)$/i.test(f.path));
+      if (files.length === 0) return;
+      const audios: RsAudioAsset[] = files.map((f) => ({
+        id: rsId("aud"),
+        name: f.name,
+        path: f.path,
+        durationSec: null,
+        targetCharacterId: null,
+      }));
+      await onChange((p) => ({ ...p, audios: [...p.audios, ...audios] }));
+    });
+  const removeCard = (key: string) => {
+    const [kind, id] = key.split(":");
+    void onChange((p) => {
+      if (kind === "character") {
+        return {
+          ...p,
+          characters: p.characters.filter((c) => c.id !== id),
+          sourceCharacters: p.sourceCharacters.map((c) =>
+            c.targetCharacterId === id ? { ...c, targetCharacterId: null, targetAppearanceId: null } : c,
+          ),
+        };
+      }
+      if (kind === "scene") return { ...p, scenes: p.scenes.filter((s) => s.id !== id) };
+      if (kind === "audio") return { ...p, audios: p.audios.filter((a) => a.id !== id) };
+      return p;
     });
   };
 
-  const base = project.base;
-  const boundCount = project.sourceCharacters.filter(
-    (c) => c.targetCharacterId && c.targetAppearanceId,
-  ).length;
+  const boundCount = project.sourceCharacters.filter((c) => c.targetCharacterId && c.targetAppearanceId).length;
+  const detectedShots = project.shots.filter((s) => s.detectionStatus === "done").length;
 
   return (
-    <div className="rs-editor">
-      {message && (
-        <div className="rs-banner error">
-          {message}
-          <button className="rs-btn ghost" onClick={() => setMessage("")}>
-            关闭
-          </button>
-        </div>
-      )}
-
-      <div className="rs-grid">
+    <div className="rs-four-panel material">
+      <TargetRail
+        project={project}
+        activeTab={tab}
+        onTab={setTab}
+        selectedCard={selectedCard}
+        onSelectCard={setSelectedCard}
+        onAddCharacter={() => void addCharacter()}
+        onAddScene={() => void addScene()}
+        onAddAppearance={(id) => void addAppearance(id)}
+        onRemoveCard={removeCard}
+      />
+      <div className="rs-center">
         <section className="rs-panel">
           <h3>
-            基础素材
-            <span className="hint">用于人物检测与替换的原图 / 原视频首帧</span>
+            源素材
+            <span className="hint">智能裁剪:按场景变化自动切分镜头（检测 N 人的话需先在下方配置检测）</span>
           </h3>
-          {base ? (
+          {source ? (
             <div className="rs-col">
               <div className="rs-media-card">
-                <div className="image-wrap">
-                  {basePreview ? (
-                    <img src={basePreview} alt={base.name} />
-                  ) : (
-                    <span className="placeholder" style={{ color: "#5a5b61", padding: 30 }}>
-                      正在加载预览…
-                    </span>
-                  )}
-                </div>
                 <div className="meta">
-                  <code>
-                    {base.kind === "video" ? "视频" : "图片"} · {base.name}
-                  </code>
+                  <code>{source.name}</code>
                   <span style={{ flex: 1 }} />
-                  <button className="rs-btn ghost" disabled={busy} onClick={() => void chooseBaseImage()}>
-                    换图片
-                  </button>
-                  {base.kind === "video" && (
-                    <button className="rs-btn ghost" disabled={busy} onClick={() => void reExtract()}>
-                      重新抽帧
-                    </button>
-                  )}
-                  <button
-                    className="rs-btn ghost"
-                    disabled={busy}
-                    onClick={() =>
-                      void run("清除素材", async () => {
-                        await onChange((project) => ({ ...project, base: null, shots: [] }));
-                      })
-                    }
-                  >
-                    移除
-                  </button>
+                  <span className="rs-tag">{source.width}×{source.height}</span>
+                  {source.durationSec !== null && <span className="rs-tag">{source.durationSec.toFixed(1)}s</span>}
                 </div>
               </div>
-              {base.kind === "video" && (
-                <p className="rs-muted">
-                  已自动抽取首帧作为人物定位与替换生成的基础画面；后续可在「视频替换」步骤基于替换图+原视频生成结果。
-                </p>
-              )}
+              <div className="rs-row" style={{ alignItems: "center", gap: 10 }}>
+                <button className="rs-btn ghost" disabled={busy} onClick={() => void pickSource("video")}>
+                  更换视频
+                </button>
+                <button className="rs-btn ghost" disabled={busy} onClick={() => void pickSource("image")}>
+                  换图片
+                </button>
+              </div>
             </div>
           ) : (
             <div className="rs-empty">
-              <p style={{ marginBottom: 10 }}>
-                选择一张图片，或选择一个视频（自动抽取首帧）作为替换基础素材。
-              </p>
+              <p style={{ marginBottom: 10 }}>导入一条视频（自动智能裁剪）或一张图片作为替换素材。</p>
               <div className="rs-row" style={{ justifyContent: "center" }}>
-                <button className="rs-btn primary" disabled={busy} onClick={() => void chooseBaseImage()}>
-                  选择图片…
-                </button>
-                <button className="rs-btn" disabled={busy} onClick={() => void chooseBaseVideo()}>
+                <button className="rs-btn primary" disabled={busy} onClick={() => void pickSource("video")}>
                   选择视频…
+                </button>
+                <button className="rs-btn" disabled={busy} onClick={() => void pickSource("image")}>
+                  选择图片…
                 </button>
               </div>
             </div>
@@ -231,231 +399,182 @@ export function StudioMaterialStep({
 
         <section className="rs-panel">
           <h3>
-            目标形象
-            <span className="hint">替换后的人物参考图（可多形象）</span>
+            智能裁剪设置
+            <span className="hint">镜头很碎时会自动合并过短片段</span>
           </h3>
-          {project.targetCharacters.length === 0 ? (
-            <div className="rs-empty">
-              <p style={{ marginBottom: 10 }}>还没有目标角色。添加一个人物角色并上传它的参考形象。</p>
-              <button className="rs-btn primary" disabled={busy} onClick={() => void addCharacter()}>
-                ＋ 新建角色
+          <div className="rs-row">
+            {RS_SMART_CLIP_MODES.map((mode) => (
+              <button
+                key={mode.id}
+                className={`rs-btn${project.settings.smartClipMode === mode.id ? " primary" : ""}`}
+                title={mode.hint}
+                disabled={busy}
+                onClick={() =>
+                  void onChange((p) => ({ ...p, settings: { ...p.settings, smartClipMode: mode.id } }))
+                }
+              >
+                {mode.label}
               </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="rs-panel">
+          <h3>检测设置</h3>
+          <div className="rs-row">
+            <div className="rs-field" style={{ flex: "1 1 200px" }}>
+              <span>检测中转站</span>
+              <select
+                value={project.settings.detectProviderId}
+                onChange={(event) =>
+                  void onChange((p) => ({ ...p, settings: { ...p.settings, detectProviderId: event.target.value } }))
+                }
+              >
+                <option value="">选择中转站…</option>
+                {providers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
             </div>
+            <div className="rs-field" style={{ flex: "1 1 200px" }}>
+              <span>检测模型</span>
+              <input
+                value={project.settings.detectModel}
+                placeholder="例如 qwen-vl-max / gpt-4.1-mini"
+                onChange={(event) =>
+                  void onChange((p) => ({ ...p, settings: { ...p.settings, detectModel: event.target.value } }))
+                }
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="rs-panel">
+          <h3>
+            分析
+            <span className="hint">当前状态: {project.shots.length} 镜头 · {detectedShots} 已检测 · {boundCount} 已绑定</span>
+          </h3>
+          <div className="rs-row">
+            <button className="rs-btn primary" disabled={busy || !source} onClick={() => void analyze()}>
+              {busy ? <span className="rs-spinner" /> : null}
+              {source?.analysisStatus === "running" ? "处理中…" : "开始处理（智能裁剪）"}
+            </button>
+            {log.length > 0 && (
+              <div className="rs-log" style={{ flex: "1 1 100%" }}>
+                {log.map((line, index) => (
+                  <div key={index} className="rs-muted" style={{ fontSize: 11 }}>
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+            {message && (
+              <div className="rs-banner error" style={{ flex: "1 1 100%" }}>
+                {message}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {project.shots.length > 0 && (
+          <ShotTimeline
+            shots={project.shots}
+            selectedShotId={selectedShot?.id ?? null}
+            onSelectShot={(shotId) => setFocusedShotId(shotId)}
+            onDetectAll={() => void analyze()}
+            onDeleteShots={(ids) =>
+              void onChange((p) => ({
+                ...p,
+                shots: p.shots.filter((s) => !ids.includes(s.id)),
+              }))
+            }
+            busy={busy}
+            detectBusy={busy}
+          />
+        )}
+      </div>
+
+      <aside className="rs-detail">
+        <section className="rs-panel">
+          <h3>
+            镜头预览
+            <span className="hint">{selectedShot ? selectedShot.label : "未分析"}</span>
+          </h3>
+          {selectedShotPreview ? (
+            <img src={selectedShotPreview} alt="镜头" style={{ width: "100%", borderRadius: 8 }} />
           ) : (
-            <div className="rs-col">
-              {project.targetCharacters.map((character) => (
-                <CharacterCard
-                  key={character.id}
-                  character={character}
-                  busy={busy}
-                  onAddAppearance={() => void addAppearance(character.id)}
-                  onChange={(next) =>
-                    void onChange((project) => ({
-                      ...project,
-                      targetCharacters: project.targetCharacters.map((c) =>
-                        c.id === character.id ? next : c,
-                      ),
-                    }))
-                  }
-                  onRemove={() =>
-                    void onChange((project) => ({
-                      ...project,
-                      targetCharacters: project.targetCharacters.filter((c) => c.id !== character.id),
-                      sourceCharacters: project.sourceCharacters.map((source) =>
-                        source.targetCharacterId === character.id
-                          ? { ...source, targetCharacterId: null, targetAppearanceId: null }
-                          : source,
-                      ),
-                    }))
-                  }
-                />
-              ))}
-              <button className="rs-btn" disabled={busy} onClick={() => void addCharacter()}>
-                ＋ 新建角色
-              </button>
+            <div className="rs-empty">完成分析后显示镜头关键帧</div>
+          )}
+          {selectedShot && (
+            <div className="rs-row" style={{ marginTop: 8 }}>
+              <span className="rs-tag">{formatPrecise(selectedShot.startSec)} → {formatPrecise(selectedShot.endSec)}</span>
+              <span className="rs-tag">{selectedShot.people.length} 人</span>
             </div>
           )}
         </section>
-      </div>
-
-      <section className="rs-panel">
-        <h3>
-          当前状态
-          <span className="hint">完成素材设定后进入「人物绑定」</span>
-        </h3>
-        <div className="rs-row">
-          <span className="rs-tag">{base ? `基础素材: ${base.name}` : "未设置基础素材"}</span>
-          <span className="rs-tag">{project.sourceCharacters.length} 个人物框</span>
-          <span className="rs-tag">{project.targetCharacters.length} 个目标角色</span>
-          <span className="rs-tag">{boundCount} 个已绑定人物</span>
-        </div>
-      </section>
+        <section className="rs-panel">
+          <h3>
+            身份绑定
+            <span className="hint">跨镜头聚类成功后在此绑定目标角色</span>
+          </h3>
+          <BindingList project={project} onChange={onChange} compact />
+        </section>
+      </aside>
     </div>
   );
 }
 
-function makeShot(base: RsBaseAsset) {
+function makeShotFromMeta(
+  meta: { startSec: number; endSec: number; durationSec: number; keyframeTimeSec: number },
+  sourceId: string,
+  index: number,
+): RsShot {
   return {
     id: rsId("shot"),
-    label: "镜头 01",
-    keyframePath: base.keyframePath,
-    sourceVideoPath: base.kind === "video" ? base.path : null,
+    index,
+    label: `镜头${index}`,
+    sourceId,
+    startSec: meta.startSec,
+    endSec: meta.endSec,
+    durationSec: meta.durationSec,
+    videoPath: null,
+    keyframePath: null,
+    keyframeTimeSec: meta.keyframeTimeSec,
+    people: [],
+    detectionStatus: "idle",
+    detectionError: null,
     imagePrompt: "",
     imageResults: [],
     imageActiveIndex: 0,
-    imageStatus: "idle" as const,
+    imageStatus: "idle",
     imageError: null,
     videoPrompt: "",
     videoResults: [],
     videoActiveIndex: 0,
-    videoStatus: "idle" as const,
+    videoStatus: "idle",
     videoError: null,
+    voiceText: "",
+    voiceAudioPath: null,
+    voiceStatus: "idle",
+    voiceError: null,
+    selected: true,
   };
 }
 
-async function extractKeyframe(
-  host: Awaited<ReturnType<typeof ensureHostApi>>,
-  videoPath: string,
-  position: "first" | "last",
-): Promise<string> {
-  const result = (await host.extractFrame({
-    file: videoPath,
-    outputDir: "",
-    position,
-  })) as unknown as { files?: string[]; ok?: boolean; outputPath?: string };
-  const output = result?.files?.[0] ?? result?.outputPath;
-  if (!output || typeof output !== "string") {
-    throw new Error("抽取视频首帧失败（可检查视频文件是否可读）");
+function makeShotForImage(path: string): RsShot {
+  return {
+    ...makeShotFromMeta({ startSec: 0, endSec: 1, durationSec: 1, keyframeTimeSec: 0 }, "", 1),
+    keyframePath: path,
+    detectionStatus: "idle",
+  };
+}
+
+function RS_LETTER_IDX(hint: string | null, index: number): number {
+  if (hint) {
+    const m = /人物([A-H])|^([A-H])$/i.exec(hint.trim());
+    if (m) return (m[1] || m[2] || "A").toUpperCase().charCodeAt(0) - 65;
   }
-  return output;
-}
-
-function CharacterCard({
-  character,
-  busy,
-  onAddAppearance,
-  onChange,
-  onRemove,
-}: {
-  character: RsTargetCharacter;
-  busy: boolean;
-  onAddAppearance: () => void;
-  onChange: (next: RsTargetCharacter) => void;
-  onRemove: () => void;
-}) {
-  const [expanded, setExpanded] = useState(true);
-  return (
-    <div style={{ border: "1px solid #26262b", borderRadius: 8, padding: 10, background: "#131316" }}>
-      <div className="rs-row" style={{ alignItems: "center" }}>
-        <input
-          style={{ flex: "0 1 200px", border: "1px solid #34343a", background: "#1d1d21", color: "#e8e9ec", borderRadius: 6, padding: "6px 9px" }}
-          value={character.name}
-          onChange={(event) => onChange({ ...character, name: event.target.value })}
-          placeholder="角色名称"
-        />
-        <span className="rs-tag">{character.appearances.length} 个形象</span>
-        <span style={{ flex: 1 }} />
-        <button className="rs-btn ghost" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "收起" : "展开"}
-        </button>
-        <button className="rs-btn ghost danger" onClick={onRemove}>
-          删除
-        </button>
-      </div>
-      {expanded && (
-        <div style={{ marginTop: 8 }}>
-          <div className="rs-field">
-            <span>角色描述（可选，用于补充提示词）</span>
-            <textarea
-              rows={2}
-              value={character.description}
-              onChange={(event) => onChange({ ...character, description: event.target.value })}
-              placeholder="例如：年轻女性，黑色长发，红色连衣裙"
-            />
-          </div>
-          <div className="rs-results" style={{ paddingBottom: 4 }}>
-            {character.appearances.map((appearance) => (
-              <AppearanceCard
-                key={appearance.id}
-                appearance={appearance}
-                onRemove={() =>
-                  onChange({
-                    ...character,
-                    appearances: character.appearances.filter((a) => a.id !== appearance.id),
-                  })
-                }
-                onChange={(next) =>
-                  onChange({
-                    ...character,
-                    appearances: character.appearances.map((a) => (a.id === appearance.id ? next : a)),
-                  })
-                }
-              />
-            ))}
-            <button className="rs-btn" disabled={busy} onClick={onAddAppearance}>
-              ＋ 添加形象图
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AppearanceCard({
-  appearance,
-  onChange,
-  onRemove,
-}: {
-  appearance: RsAppearance;
-  onChange: (next: RsAppearance) => void;
-  onRemove: () => void;
-}) {
-  const [preview, setPreview] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!appearance.imagePath) return;
-    void ensureHostApi()
-      .then((host) => host.readImage(appearance.imagePath!))
-      .then((dataUrl) => {
-        if (!cancelled) setPreview(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setPreview(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [appearance.imagePath]);
-
-  return (
-    <div className="rs-result" style={{ width: 180 }}>
-      <div className="media" style={{ height: 110 }}>
-        {preview ? (
-          <img src={preview} alt={appearance.name} />
-        ) : (
-          <span className="placeholder">无图片</span>
-        )}
-      </div>
-      <div style={{ padding: 6 }}>
-        <input
-          style={{ width: "100%", boxSizing: "border-box", border: "1px solid #34343a", background: "#1d1d21", color: "#e8e9ec", borderRadius: 6, padding: "5px 8px", fontSize: 12 }}
-          value={appearance.name}
-          onChange={(event) => onChange({ ...appearance, name: event.target.value })}
-          placeholder="形象名称"
-        />
-        <input
-          style={{ width: "100%", boxSizing: "border-box", marginTop: 6, border: "1px solid #34343a", background: "#1d1d21", color: "#e8e9ec", borderRadius: 6, padding: "5px 8px", fontSize: 12 }}
-          value={appearance.prompt}
-          onChange={(event) => onChange({ ...appearance, prompt: event.target.value })}
-          placeholder="形象补充描述（可选）"
-        />
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-          <button className="rs-btn ghost danger" onClick={onRemove}>
-            移除
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return index;
 }

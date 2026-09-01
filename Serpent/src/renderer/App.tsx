@@ -57,6 +57,8 @@ import { ConvertLinkedDialog } from "./ConvertLinkedDialog";
 import { LinkedRulesDialog } from "./LinkedRulesDialog";
 import { TagManagementWorkspace } from "./TagManagementWorkspace";
 import { ReplacementStudioWorkspace } from "./replacement-studio/ReplacementStudioWorkspace";
+import { StoryboardScriptWorkspace } from "./storyboard-script/StoryboardScriptWorkspace";
+import { MediaToolsWorkspace } from "./media-tools/MediaToolsWorkspace";
 import { useFolderDeleteActions } from "./use-folder-delete-actions";
 import { useFolderOrganizeActions } from "./use-folder-organize-actions";
 import { useFolderCommandShortcuts } from "./use-folder-command-shortcuts";
@@ -1181,8 +1183,9 @@ function AppInner() {
   }, [showTrash]);
   const [showTagManagement, setShowTagManagement] = useState(false);
   const [activePluginSidebarViewId, setActivePluginSidebarViewId] = useState<string | null>(null);
-  // 替换工作室:由 YUH 宿主通过 serpent-host:open-view 打开(全屏叠加)。
-  const [showReplacementStudio, setShowReplacementStudio] = useState(false);
+  // YUH 宿主通过 serpent-host:open-view 打开嵌入工作室视图(全屏叠加):
+  //   replacement-studio / storyboard-script / media-tools;null = 回到资源库。
+  const [activeStudioView, setActiveStudioView] = useState<string | null>(null);
   useEffect(() => {
     const host = (
       window as unknown as {
@@ -1191,8 +1194,7 @@ function AppInner() {
     ).serpent?.host;
     if (!host) return;
     return host.onOpenView((viewId) => {
-      // replacement-studio → 打开替换工作室;其它视图 id → 关闭(回到资源库)。
-      setShowReplacementStudio(viewId === "replacement-studio");
+      setActiveStudioView(viewId && viewId !== "serpent" ? viewId : null);
     });
   }, []);
   const [trashedAssets, setTrashedAssets] = useState<AssetSummary[]>([]);
@@ -13073,8 +13075,14 @@ function AppInner() {
         />
       )}
     </main>
-    {showReplacementStudio && (
-      <ReplacementStudioWorkspace onExit={() => setShowReplacementStudio(false)} />
+    {activeStudioView === "replacement-studio" && (
+      <ReplacementStudioWorkspace onExit={() => setActiveStudioView(null)} />
+    )}
+    {activeStudioView === "storyboard-script" && (
+      <StoryboardScriptWorkspace onExit={() => setActiveStudioView(null)} />
+    )}
+    {activeStudioView === "media-tools" && (
+      <MediaToolsWorkspace onExit={() => setActiveStudioView(null)} />
     )}
     </>
   );
