@@ -3,7 +3,7 @@
  * 声音克隆:逐镜头台词(可转写) + 目标角色音色参考 → YUH IndexTTS 克隆。
  * 合成视频:镜头片段素材化(FFmpeg)+ 克隆音轨对齐 → 拼接混流导出。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   rsId,
   type RsGeneratedItem,
@@ -29,6 +29,22 @@ export function StudioVoiceStep({
   const [message, setMessage] = useState("");
   const shot = project.shots.find((s) => s.id === selectedShot?.id) ?? project.shots[0] ?? null;
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
+  const [originAudio, setOriginAudio] = useState<string | null>(null);
+
+  const extractOrigin = () =>
+    run("提取原声", async () => {
+      if (!shot) return;
+      const source = project.sources.find((s) => s.id === shot.sourceId) ?? project.sources[0] ?? null;
+      if (!source || source.kind !== "video") throw new Error("需要视频素材才能提取原声");
+      const host = await ensureHostApi();
+      const result = await host.extractShotAudio({
+        file: source.path,
+        startSec: shot.startSec,
+        durationSec: shot.durationSec,
+      });
+      setOriginAudio(result.path);
+      setMessage(`已提取镜头原声：${result.path.split(/[\\/]/).pop()}`);
+    });
 
   const voiceRef = useMemo(() => {
     const audio = activeAudioId
@@ -179,6 +195,9 @@ export function StudioVoiceStep({
             <button className="rs-btn" disabled={busy || !project.settings.providerId} onClick={() => void transcribeShot()}>
               转写原声
             </button>
+            <button className="rs-btn" disabled={busy} onClick={() => void extractOrigin()}>
+              提取原声片段
+            </button>
             <button className="rs-btn primary" disabled={busy || !voiceRef} onClick={() => void cloneShot()}>
               {busy ? <span className="rs-spinner" /> : null}
               {shot.voiceStatus === "generating" ? "克隆中…" : "生成克隆配音"}
@@ -194,6 +213,14 @@ export function StudioVoiceStep({
               />
             )}
           </div>
+          {originAudio && (
+            <div style={{ marginTop: 8 }}>
+              <span className="rs-muted" style={{ fontSize: 11, marginRight: 8 }}>
+                原声片段：
+              </span>
+              <audio src={"file:///" + originAudio.replace(/\\/g, "/")} controls style={{ height: 30 }} />
+            </div>
+          )}
           {message && <div className="rs-banner error" style={{ marginTop: 8 }}>{message}</div>}
         </section>
         <section className="rs-panel">
@@ -264,11 +291,46 @@ export function StudioComposeStep({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [composeShotIds, setComposeShotIds] = useState<string[]>([]);
+  const [synced, setSynced] = useState(false);
+  const originRef = useRef<HTMLVideoElement | null>(null);
+  const resultRef = useRef<HTMLVideoElement | null>(null);
 
   const shotsWithOutput = project.shots.filter(
     (s) => s.videoResults.length > 0 || s.imageResults.length > 0,
   );
   const final = project.compose.finalVideoPath ?? null;
+  const originalVideo = project.sources.find((s) => s.kind === "video")?.path ?? null;
+
+  const toggleSync = () => {
+    const origin = originRef.current;
+    const result = resultRef.current;
+    if (!origin || !result) return;
+    const next = !synced;
+    setSynced(next);
+    if (next) {
+      void origin.play();
+      void result.play();
+    } else {
+      origin.pause();
+      result.pause();
+    }
+  };
+  const onOriginTime = () => {
+    if (!synced) return;
+    const origin = originRef.current;
+    const result = resultRef.current;
+    if (origin && result && Math.abs(result.currentTime - origin.currentTime) > 0.35) {
+      result.currentTime = origin.currentTime;
+    }
+  };
+  const onResultTime = () => {
+    if (!synced) return;
+    const origin = originRef.current;
+    const result = resultRef.current;
+    if (origin && result && Math.abs(origin.currentTime - result.currentTime) > 0.35) {
+      origin.currentTime = result.currentTime;
+    }
+  };
 
   const composeAll = async () => {
     setBusy(true);
@@ -293,6 +355,7 @@ export function StudioComposeStep({
               startSec: shot.startSec,
               durationSec: shot.durationSec,
               outputDir,
+              reverse: shot.reversed,
             });
             videoPath = clip.path;
             await onChange((p) => ({
@@ -365,25 +428,47 @@ export function StudioComposeStep({
           最终成品
           <span className="hint">{final ? project.compose.composedShotIds.length : 0} 个镜头参与合成</span>
         </h3>
-        {final ? (
-          <video
-            src={"file:///" + final.replace(/\\/g, "/")}
-            controls
-            style={{ width: "100%", maxHeight: 420, background: "#0b0b0d", borderRadius: 8 }}
-          />
-        ) : (
-          <div className="rs-empty">合成完成后在此预览最终视频</div>
-        )}
-        {final && (
-          <div className="rs-row" style={{ marginTop: 8 }}>
+        <div className="rs-row" style={{ marginBottom: 8 }}>
+          {final && (
+            <button className="rs-btn" onClick={toggleSync}>
+              {synced ? "停止同步播放" : "同步播放对比"}
+            </button>
+          )}
+          {final && (
             <button
               className="rs-btn"
               onClick={() => void ensureHostApi().then((host) => host.showItem(final).catch(() => void 0))}
             >
               在文件夹中显示
             </button>
-          </div>
-        )}
+          )}
+          <span className="rs-tag">
+            音轨策略：{project.settings.composeAudioEnabled ? "克隆音轨替换原声" : "保留原声"}
+          </span>
+        </div>
+        <div className="rs-compose-compare">
+          {originalVideo && (
+            <figure className="rs-compare-card">
+              <figcaption>原视频</figcaption>
+              <video
+                ref={originRef}
+                src={"file:///" + originalVideo.replace(/\\/g, "/")}
+                controls
+                onTimeUpdate={onOriginTime}
+              />
+            </figure>
+          )}
+          <figure className="rs-compare-card">
+            <figcaption>{final ? "替换视频（合成结果）" : "预览（未合成）"}</figcaption>
+            {final ? (
+              <video ref={resultRef} src={"file:///" + final.replace(/\\/g, "/")} controls onTimeUpdate={onResultTime} />
+            ) : (
+              <div className="rs-empty" style={{ minHeight: 160 }}>
+                合成完成后在此预览最终视频
+              </div>
+            )}
+          </figure>
+        </div>
       </section>
       <aside className="rs-detail">
         <section className="rs-panel">

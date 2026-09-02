@@ -1201,3 +1201,220 @@
   flex-wrap: wrap;
   padding: 16px;
 }
+
+/* ==========================================================================
+   补齐:人物框编辑手柄 / 版本菜单 / 切口编辑器 / hero / 保存状态
+   ========================================================================== */
+
+/* 选中人物框的 8 向缩放手柄 */
+.rs-box.v2 .rs-box-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: #f2f3f5;
+  border: 1px solid #0c0c0e;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.rs-box.v2.selected .rs-box-handle {
+  opacity: 1;
+}
+.rs-box.v2 .rs-box-handle.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.rs-box.v2 .rs-box-handle.n { left: calc(50% - 4px); top: -5px; cursor: ns-resize; }
+.rs-box.v2 .rs-box-handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.rs-box.v2 .rs-box-handle.e { right: -5px; top: calc(50% - 4px); cursor: ew-resize; }
+.rs-box.v2 .rs-box-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.rs-box.v2 .rs-box-handle.s { left: calc(50% - 4px); bottom: -5px; cursor: ns-resize; }
+.rs-box.v2 .rs-box-handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.rs-box.v2 .rs-box-handle.w { left: -5px; top: calc(50% - 4px); cursor: ew-resize; }
+
+/* 选中框的编辑工具条(朝向 + 删除) */
+.rs-box.v2 .rs-box-edit {
+  position: absolute;
+  right: -2px;
+  bottom: -58px;
+  display: flex;
+  gap: 6px;
+  z-index: 5;
+  white-space: nowrap;
+}
+.rs-box.v2 .rs-box-edit select {
+  appearance: none;
+  background: #1d1d21;
+  color: #e8e9ec;
+  border: 1px solid #3d8a63;
+  border-radius: 5px;
+  font-size: 10.5px;
+  padding: 2px 6px;
+}
+
+/* 手动框选草稿 */
+.rs-box.v2.manual-draft {
+  border-style: dashed;
+  background: rgba(255, 214, 10, 0.12);
+  pointer-events: none;
+}
+
+/* 版本菜单 */
+.rs-preview-meta.rs-version-toggle {
+  appearance: none;
+  background: rgba(10, 10, 12, 0.82);
+  border: 1px solid #3a3a40;
+  border-radius: 7px;
+  color: #c9cad1;
+  font-size: 10.5px;
+  padding: 0 7px;
+  cursor: pointer;
+}
+.rs-version-menu {
+  position: absolute;
+  right: 6px;
+  top: 30px;
+  width: 240px;
+  background: #1a1a1e;
+  border: 1px solid #34343a;
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+  overflow: hidden;
+}
+.rs-version-menu-title {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #9a9ca4;
+  border-bottom: 1px solid #26262b;
+}
+.rs-version-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #d9dbdf;
+  cursor: pointer;
+}
+.rs-version-item:hover {
+  background: #232327;
+}
+.rs-version-item.current {
+  color: #b9f0d3;
+}
+.rs-version-item-actions {
+  display: flex;
+  gap: 4px;
+}
+.rs-preview-actions {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+/* 切口编辑器(镜头时间线下方) */
+.rs-cut-editor {
+  border: 1px solid #26262b;
+  border-radius: 8px;
+  background: #121214;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.rs-cut-editor header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rs-cut-track {
+  position: relative;
+  height: 40px;
+  background: #0c0c0e;
+  border: 1px solid #2a2a2f;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.rs-cut-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(48, 209, 88, 0.16);
+  border: 1px solid rgba(48, 209, 88, 0.55);
+  border-radius: 4px;
+}
+.rs-cut-segment.reverse {
+  background: rgba(255, 159, 10, 0.18);
+  border-color: rgba(255, 159, 10, 0.6);
+}
+.rs-cut-handle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 9px;
+  background: #f2f3f5;
+  border: 1px solid #0c0c0e;
+  border-radius: 2px;
+  cursor: ew-resize;
+}
+.rs-cut-handle.left { left: -4px; }
+.rs-cut-handle.right { right: -4px; }
+.rs-cut-time {
+  font-size: 10.5px;
+  color: #7d7f86;
+  font-family: Consolas, monospace;
+}
+
+/* 首页 hero */
+.rs-hero {
+  border: 1px solid #26262b;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #161619, #121215);
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.rs-hero .title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f2f3f5;
+}
+.rs-hero .sub {
+  color: #7d7f86;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* 保存状态 */
+.rs-save-state {
+  font-size: 11px;
+  color: #7d7f86;
+}
+
+/* 合成对比双卡 */
+.rs-compose-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.rs-compare-card {
+  margin: 0;
+  border: 1px solid #2a2a2f;
+  border-radius: 10px;
+  background: #101013;
+  overflow: hidden;
+}
+.rs-compare-card figcaption {
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #d9dbdf;
+  border-bottom: 1px solid #232327;
+}
+.rs-compare-card video {
+  width: 100%;
+  max-height: 300px;
+  display: block;
+  background: #000;
+}

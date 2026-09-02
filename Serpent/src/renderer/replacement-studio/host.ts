@@ -133,6 +133,13 @@ export interface RsHostApi {
     startSec: number;
     durationSec: number;
     outputDir?: string;
+    reverse?: boolean;
+  }): Promise<{ path: string; durationSec: number }>;
+  extractShotAudio(request: {
+    file: string;
+    startSec: number;
+    durationSec: number;
+    outputDir?: string;
   }): Promise<{ path: string; durationSec: number }>;
   transcribe(request: {
     audioPath: string;

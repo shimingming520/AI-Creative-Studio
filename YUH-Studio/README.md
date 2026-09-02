@@ -91,36 +91,54 @@ node scripts/hosted-rebuild.mjs
 （智能裁剪 UI 流程）、`scripts/cdp-production-layout.mjs`（四栏生产布局）、
 `scripts/test-serpent-sidebar.cjs`（注入状态机回归）。
 
-## 剧本工作室与媒体工具（并行轨道·阶段1 脚手架）
+## 剧本工作室与媒体工具（并行轨道）
 
 替换工作室之外，新开了两条并行轨道，模式与替换工作室一致（Serpent 渲染层 +
 YUH 中转站/既有工具能力 + 输出目录落盘）。侧栏注入已泛化为多子视图状态机
 （`activeSubView`），三个工作室入口共用「再次点击收起 / 点击其它切换」行为，
 回归测试见 `scripts/test-serpent-sidebar.cjs`。
 
-### Track A — 剧本工作室 · 分镜脚本（view id: `storyboard-script`）
+### Track A — 剧本工作室 · 分镜脚本 + 资产设定 + 批量生成（view id: `storyboard-script`）
 
 - 纯逻辑与类型：`Serpent/src/shared/storyboard-script.ts`（提示词模板工厂、
-  `parseStoryScript` JSON 解析/规范化/时长钳制、`scriptToPlainText`、`splitStoryText`），
-  单测 `Serpent/tests/unit/storyboard-script.test.ts`。
+  `parseStoryScript` JSON 解析/规范化/时长钳制、角色资产
+  `StoryCharacter`/`normalizeCharacterAssets`/`buildCharacterContextLine`/
+  `finalizeGenerationPrompt`/`buildShotImagePrompt`、`scriptToPlainText`、
+  `splitStoryText`），单测 `Serpent/tests/unit/storyboard-script.test.ts`。
 - 工作区：`Serpent/src/renderer/storyboard-script/StoryboardScriptWorkspace.tsx`
-  （文案 → 中转站 chat → 分镜表，每镜提示词可编辑，复制/导出 TXT/查看 JSON，
-  草稿存 localStorage `sw:draft:v1`）。
+  （文案 → 中转站 chat → 分镜表；角色资产卡（名字/描述/形象参考图，生成时
+  自动注入「角色:…」上下文并作为 references 传入）；逐镜/批量生成参考图与
+  镜头视频（进度 + 结果缩略图 + 定位输出）；复制/导出 TXT/查看 JSON；草稿存
+  localStorage `sw:draft:v1`）。
 - 宿主桥：`sw:generate-script`（主进程只发 chat 完成，提示词由前端构建）、
-  `sw:save-text`（输出目录 UTF-8 落盘）。主进程实现见
+  `sw:save-text`（输出目录 UTF-8 落盘）、`sw:open-replacement-studio`（切到替换
+  工作室视图）；参考图/视频生成复用既有 `cloud-images:generate` /
+  `cloud-videos:generate` 通道。主进程实现见
   `dev-src/main/index.js::registerStoryWorkflowIpc()`。
-- 阶段2（未开始）：分镜批量生成（云生图/生视频）、资产设定、角色一致性、
-  与替换工作室联动。
+- **替换工作室联动**（`发送到替换工作室` 按钮）：桥接层
+  `Serpent/src/shared/storyboard-replacement.ts`（纯函数，单测
+  `storyboard-replacement.test.ts`）——
+   - 分镜镜头 → RsShot（label「第N镜」、imagePrompt/videoPrompt 沿用镜头提示词、
+     voiceText 预填台词 → 声音克隆步骤可直接配音、已生成参考图/视频 → RsGeneratedItem）；
+   - 角色资产 → RsTargetCharacter（形象 = 参考图 + 描述）；
+   - sceneLabel 分组 → RsScene；生成参数 → RsSettings；
+   - 更新语义：同名项目只合并角色资产（按名字匹配、保留 id/boundLetters 绑定），
+     不覆盖用户已做的素材设定/镜头/设置；保存后自动打开替换工作室。
+- 后续阶段（未开始）：分镜生成后与替换工作室生产流程（人物替换/声音克隆）进一步联动。
 
 ### Track B — 媒体工具（view id: `media-tools`）
 
-- 纯逻辑与类型：`Serpent/src/shared/media-tools.ts`（宫格单元、拼图槽位、
-  对比切换顺序、白板笔画模型），单测 `Serpent/tests/unit/media-tools.test.ts`。
+- 纯逻辑与类型：`Serpent/src/shared/media-tools.ts`（宫格单元、框选
+  `cellsInRect`/`selectionRect`、拼图槽位、对比切换顺序、白板笔画模型），
+  单测 `Serpent/tests/unit/media-tools.test.ts`。
 - 工作区：`Serpent/src/renderer/media-tools/MediaToolsWorkspace.tsx`，
-  四个选项卡：宫格（rows×cols 分块导出）/ 拼图（2 图横竖拼接）/
-  图像对比（点击缩略图切主图，对齐 ShuoCanvas 素材对比）/ 白板（笔画标注导出 PNG）。
-- 宿主桥：`mt:split-grid`（代理 `splitImages`）、`mt:stitch-grid`（代理
-  `stitchImages`）、`mt:save-annotation`（代理 `saveCanvasAnnotation`），全部输出到
+  四个选项卡：宫格（rows×cols 分块导出，拖拽框选/点选单元后仅导出选中格）/
+  拼图（2~6 图自动近方形网格，2 图可选横竖排）/
+  图像对比（点击缩略图切主图，对齐 ShuoCanvas 素材对比）/
+  白板（画笔/箭头/橡皮标注导出 PNG）。
+- 宿主桥：`mt:split-grid`（代理 `splitImages`，支持 `indexes` 过滤）、
+  `mt:stitch-grid`（代理 `stitchImages`）、`mt:collage`（多图 sharp 网格拼接）、
+  `mt:save-annotation`（代理 `saveCanvasAnnotation`），全部输出到
   「存储设置 → 输出文件夹」，落盘后资源管理「生成资产」自动可见。主进程实现见
   `dev-src/main/index.js::registerMediaToolIpc()`。
 

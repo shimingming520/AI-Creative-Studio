@@ -2,9 +2,11 @@
  * 替换工作室 v2 — 共享部件:检测舞台 / 镜头时间线 / 目标素材栏 / 生成面板骨架。
  * 结构对齐 ShuoCanvas personReplacement(四栏布局 + HTML overlay 人物框 + 镜头卡片网格)。
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
+  RsBbox,
   RsGeneratedItem,
+  RsOrientation,
   RsPerson,
   RsProject,
   RsScene,
@@ -12,7 +14,7 @@ import type {
   RsSourceCharacter,
   RsTargetCharacter,
 } from "../../shared/replacement-studio";
-import { RS_SCOPE_LABELS } from "../../shared/replacement-studio";
+import { RS_ORIENTATION_LABELS, RS_SCOPE_LABELS } from "../../shared/replacement-studio";
 import { ensureHostApi, errorText } from "./host";
 import { guideColor } from "./guide-image";
 
@@ -29,7 +31,20 @@ export function formatPrecise(sec: number): string {
 
 // ---------------------------------------------------------------------------
 // 检测舞台(关键帧 + 人物框 overlay + 字母/描述标签 + 前后镜头箭头)
+// 交互:手动框选绘制 / 选中框拖动与 8 向缩放 / 朝向 picker / 拖拽绑定 / 删除。
 // ---------------------------------------------------------------------------
+export type RsPersonPatch = {
+  bbox?: { x: number; y: number; w: number; h: number };
+  orientation?: RsOrientation;
+  sourceCharacterId?: string | null;
+};
+
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
+type Handle = (typeof HANDLES)[number];
+
+export const RS_CHARACTER_DRAG_TYPE = "application/x-rs-character";
+export const RS_CHARACTER_DRAG_PAYLOAD = { characterId: "", appearanceId: null as string | null };
+
 export function StageCanvas({
   shot,
   imageData,
@@ -37,6 +52,10 @@ export function StageCanvas({
   characters,
   selectedPersonId,
   onSelectPerson,
+  onPersonChanged,
+  onAddManualPerson,
+  onRemovePerson,
+  onBindPersonByDrag,
   onPrev,
   onNext,
   canPrev,
@@ -49,15 +68,131 @@ export function StageCanvas({
   characters: RsTargetCharacter[];
   selectedPersonId: string | null;
   onSelectPerson: (personId: string | null) => void;
+  onPersonChanged: (personId: string, patch: RsPersonPatch) => void;
+  onAddManualPerson: (bbox: RsBbox) => void;
+  onRemovePerson: (personId: string) => void;
+  onBindPersonByDrag: (personId: string, characterId: string, appearanceId: string | null) => void;
   onPrev: () => void;
   onNext: () => void;
   canPrev: boolean;
   canNext: boolean;
   children?: ReactNode;
 }) {
+  const [drawing, setDrawing] = useState(false);
+  const [draft, setDraft] = useState<RsBbox | null>(null);
+  const [draggingDraw, setDraggingDraw] = useState(false);
+  const [edit, setEdit] = useState<{
+    id: string;
+    mode: "move" | Handle;
+    start: { x: number; y: number };
+    origin: RsBbox;
+  } | null>(null);
+
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
+
+  const toNorm = (event: { clientX: number; clientY: number }) => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const rect = stage.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width))),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))),
+    };
+  };
+
+  const clampBox = (value: number, min: number, max: number) =>
+    Math.max(min, Math.min(max, value));
+
+  const onStagePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawing) return;
+    const p = toNorm(event);
+    if (!p) return;
+    dragStart.current = p;
+    setDraggingDraw(true);
+    setDraft({ x: p.x, y: p.y, w: 0, h: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onStagePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (edit) {
+      const p = toNorm(event);
+      if (!p) return;
+      const dx = p.x - edit.start.x;
+      const dy = p.y - edit.start.y;
+      let next: RsBbox;
+      if (edit.mode === "move") {
+        next = {
+          x: clampBox(edit.origin.x + dx, 0, 1 - edit.origin.w),
+          y: clampBox(edit.origin.y + dy, 0, 1 - edit.origin.h),
+          w: edit.origin.w,
+          h: edit.origin.h,
+        };
+      } else {
+        const { origin, mode } = edit;
+        let x = origin.x;
+        let y = origin.y;
+        let w = origin.w;
+        let h = origin.h;
+        if (mode.includes("w")) {
+          x = clampBox(origin.x + dx, 0, origin.x + origin.w - 0.02);
+          w = origin.x + origin.w - x;
+        }
+        if (mode.includes("e")) w = clampBox(origin.w + dx, 0.02, 1 - origin.x);
+        if (mode.includes("n")) {
+          y = clampBox(origin.y + dy, 0, origin.y + origin.h - 0.02);
+          h = origin.y + origin.h - y;
+        }
+        if (mode.includes("s")) h = clampBox(origin.h + dy, 0.02, 1 - origin.y);
+        next = { x, y, w, h };
+      }
+      onPersonChanged(edit.id, { bbox: next });
+      return;
+    }
+    if (dragStart.current && draft) {
+      const p = toNorm(event);
+      if (!p) return;
+      const x0 = Math.min(dragStart.current.x, p.x);
+      const y0 = Math.min(dragStart.current.y, p.y);
+      setDraft({
+        x: x0,
+        y: y0,
+        w: Math.min(1 - x0, Math.abs(p.x - dragStart.current.x)),
+        h: Math.min(1 - y0, Math.abs(p.y - dragStart.current.y)),
+      });
+    }
+  };
+  const onStagePointerUp = () => {
+    if (edit) {
+      setEdit(null);
+      return;
+    }
+    if (draggingDraw && draft && draft.w > 0.015 && draft.h > 0.015) {
+      onAddManualPerson({ ...draft });
+    }
+    setDraggingDraw(false);
+    dragStart.current = null;
+    setDraft(null);
+    setDrawing(false);
+  };
+
+  const startEdit = (
+    event: React.PointerEvent<HTMLElement>,
+    personId: string,
+    mode: "move" | Handle,
+    origin: RsBbox,
+  ) => {
+    event.stopPropagation();
+    const p = toNorm(event);
+    if (!p) return;
+    setEdit({ id: personId, mode, start: p, origin });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onSelectPerson(personId);
+  };
+
   if (!shot) {
     return <div className="rs-stage-empty">请选择一个镜头</div>;
   }
+
   return (
     <div className="rs-stage-shell" data-story-marquee-surface="people">
       <div className="rs-stage-tools">
@@ -65,6 +200,13 @@ export function StageCanvas({
           {shot.label} · {formatPrecise(shot.startSec)} → {formatPrecise(shot.endSec)}（{shot.durationSec.toFixed(1)}s）
         </span>
         <span style={{ flex: 1 }} />
+        <button
+          className={`rs-btn${drawing ? " primary" : ""}`}
+          onClick={() => setDrawing((v) => !v)}
+          title="在舞台上拖动绘制人物框"
+        >
+          {drawing ? "拖动画框中…" : "手动框选"}
+        </button>
         {canPrev && (
           <button className="rs-btn ghost" onClick={onPrev} title="上一镜头">
             ← 上一镜头
@@ -76,7 +218,14 @@ export function StageCanvas({
           </button>
         )}
       </div>
-      <div className="rs-stage">
+      <div
+        ref={stageRef}
+        className="rs-stage"
+        style={{ cursor: drawing ? "crosshair" : "default" }}
+        onPointerDown={onStagePointerDown}
+        onPointerMove={onStagePointerMove}
+        onPointerUp={onStagePointerUp}
+      >
         {imageData ? (
           <img src={imageData} alt={shot.label} draggable={false} className="rs-stage-image" />
         ) : (
@@ -101,27 +250,103 @@ export function StageCanvas({
                       "--box-color": guideColor(index),
                     } as React.CSSProperties
                   }
-                  onClick={() => onSelectPerson(selected ? null : person.id)}
+                  onPointerDown={(event) => startEdit(event, person.id, "move", person.bbox)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDrop={(event) => {
+                    const raw = event.dataTransfer.getData(RS_CHARACTER_DRAG_TYPE);
+                    if (!raw) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    try {
+                      const payload = JSON.parse(raw) as {
+                        characterId: string;
+                        appearanceId: string | null;
+                      };
+                      onBindPersonByDrag(person.id, payload.characterId, payload.appearanceId);
+                    } catch {}
+                  }}
                   title={`${person.label}${person.description ? ` · ${person.description}` : ""}`}
                 >
                   <span className="letter">
                     {person.letter} · {person.label}
                   </span>
-                  {person.description && (
-                    <span className="desc">{person.description}</span>
-                  )}
+                  {person.description && <span className="desc">{person.description}</span>}
                   <span className="mapping">
                     {bound
                       ? `→ ${characters.find((c) => c.id === cluster!.targetCharacterId)?.name ?? ""}`
-                      : "未绑定"}
+                      : "未绑定（拖入目标形象）"}
                   </span>
+                  {selected && (
+                    <>
+                      <span className="rs-box-edit">
+                        <select
+                          value={person.orientation}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            onPersonChanged(person.id, {
+                              orientation: event.target.value as RsOrientation,
+                            })
+                          }
+                        >
+                          {(Object.keys(RS_ORIENTATION_LABELS) as RsOrientation[]).map((o) => (
+                            <option key={o} value={o}>
+                              朝向:{RS_ORIENTATION_LABELS[o]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="rs-btn ghost danger"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemovePerson(person.id);
+                          }}
+                        >
+                          删除框
+                        </button>
+                      </span>
+                      {HANDLES.map((handle) => (
+                        <span
+                          key={handle}
+                          className={`rs-box-handle ${handle}`}
+                          onPointerDown={(event) => startEdit(event, person.id, handle, person.bbox)}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
               );
             })}
             {shot.people.length === 0 && (
-              <div className="rs-stage-empty" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                当前帧未检测到人物（可手动框选主体）
+              <div
+                className="rs-stage-empty"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                }}
+              >
+                当前帧未检测到人物（怪物、兽人等非人形体可能被模型漏检，可直接「手动框选」）
               </div>
+            )}
+            {draft && (
+              <div
+                className="rs-box v2 manual-draft"
+                style={
+                  {
+                    left: `${draft.x * 100}%`,
+                    top: `${draft.y * 100}%`,
+                    width: `${draft.w * 100}%`,
+                    height: `${draft.h * 100}%`,
+                    "--box-color": "#ffd60a",
+                  } as React.CSSProperties
+                }
+              />
             )}
           </div>
         )}
@@ -129,11 +354,6 @@ export function StageCanvas({
       </div>
     </div>
   );
-}
-
-/** 项目占位(避免循环依赖):由外层传入名称映射时覆盖。 */
-function projectPlaceholder(_clusters: RsSourceCharacter[]): string {
-  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +668,22 @@ export function CharacterCard({
   }, [character.appearances]);
   const appearance = character.appearances[Math.min(appearanceIndex, character.appearances.length - 1)];
   return (
-    <div className={`rs-target-card${selected ? " selected" : ""}`} onClick={onSelect}>
+    <div
+      className={`rs-target-card${selected ? " selected" : ""}`}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(
+          RS_CHARACTER_DRAG_TYPE,
+          JSON.stringify({
+            characterId: character.id,
+            appearanceId: appearance?.imagePath ? appearance.id : null,
+          }),
+        );
+        event.dataTransfer.effectAllowed = "copy";
+      }}
+      onClick={onSelect}
+      title="拖拽到舞台人物框建立替换关系"
+    >
       <div className="rs-target-card-media">
         {appearance?.imagePath && previews[appearance.imagePath] ? (
           <img src={previews[appearance.imagePath]!} alt={character.name} />
@@ -621,18 +856,27 @@ export function ResultPreviewOverlay({
   item,
   index,
   total,
+  items,
   onPrev,
   onNext,
+  onSelectIndex,
+  onSetReference,
+  onRemove,
   onDownload,
 }: {
   item: RsGeneratedItem | null;
   index: number;
   total: number;
+  items?: RsGeneratedItem[];
   onPrev: () => void;
   onNext: () => void;
+  onSelectIndex?: (index: number) => void;
+  onSetReference?: (item: RsGeneratedItem) => void;
+  onRemove?: (item: RsGeneratedItem) => void;
   onDownload: (item: RsGeneratedItem) => void;
 }) {
   const image = useImagePreview(item?.kind === "image" ? item.outputPath : null);
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="rs-preview-card">
       {item ? (
@@ -645,9 +889,54 @@ export function ResultPreviewOverlay({
         <div className="rs-preview-empty">替换图生成中 / 尚未生成</div>
       )}
       {total > 0 && (
-        <span className="rs-preview-meta">
-          {index + 1}/{total}
-        </span>
+        <button
+          className="rs-preview-meta rs-version-toggle"
+          title="版本历史"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          {index + 1}/{total} · 版本 ▾
+        </button>
+      )}
+      {menuOpen && items && items.length > 0 && (
+        <div className="rs-version-menu">
+          <div className="rs-version-menu-title">历史结果（点击切换）</div>
+          {items.map((entry, i) => (
+            <div
+              key={entry.id}
+              className={`rs-version-item${i === index ? " current" : ""}`}
+              onClick={() => {
+                onSelectIndex?.(i);
+                setMenuOpen(false);
+              }}
+            >
+              <span>
+                图片 {i + 1}/{items.length}
+                {i === index ? " · 当前使用" : ""}
+              </span>
+              <span className="rs-version-item-actions">
+                <button
+                  className="rs-btn ghost"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSetReference?.(entry);
+                    setMenuOpen(false);
+                  }}
+                >
+                  设为参考
+                </button>
+                <button
+                  className="rs-btn ghost danger"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove?.(entry);
+                  }}
+                >
+                  删除
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
       )}
       {total > 1 && (
         <div className="rs-preview-arrows">
@@ -656,9 +945,21 @@ export function ResultPreviewOverlay({
         </div>
       )}
       {item && (
-        <button className="rs-btn ghost rs-preview-download" onClick={() => onDownload(item)}>
-          在文件夹中显示
-        </button>
+        <div className="rs-preview-actions">
+          <button className="rs-btn ghost" onClick={() => onDownload(item)}>
+            在文件夹中显示
+          </button>
+          {onSetReference && item.kind === "image" && (
+            <button className="rs-btn ghost" onClick={() => onSetReference(item)}>
+              设为参考
+            </button>
+          )}
+          {onRemove && (
+            <button className="rs-btn ghost danger" onClick={() => onRemove(item)}>
+              删除
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -51,6 +51,13 @@
     '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/>' +
     '<rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>' +
     "</svg>";
+  // 图标：近似 lucide “mic”（语音工作室）
+  const ICON_VOICE_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" width="19" height="19" aria-hidden="true">' +
+    '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>' +
+    '<path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>' +
+    "</svg>";
 
   // 当前打开的嵌入子视图 id(null = 资源库视图);各子视图与资源管理互斥高亮。
   let activeSubView = null;
@@ -139,6 +146,14 @@
         label: "媒体工具",
         icon: ICON_TOOLS_SVG,
         onClick: subViewClick("media-tools"),
+      },
+      {
+        cls: STUDIO_ENTRY_CLASS,
+        dataEntry: "voice-studio",
+        title: "语音工作室",
+        label: "语音工作室",
+        icon: ICON_VOICE_SVG,
+        onClick: subViewClick("voice-studio"),
       },
       {
         cls: REPLACEMENT_ENTRY_CLASS,

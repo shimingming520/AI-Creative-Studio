@@ -72,6 +72,23 @@ export type RsSource = {
   analysisError: string | null;
 };
 
+export type RsOrientation =
+  | "unknown"
+  | "front"
+  | "back"
+  | "side"
+  | "left_profile"
+  | "right_profile";
+
+export const RS_ORIENTATION_LABELS: Record<RsOrientation, string> = {
+  unknown: "未知",
+  front: "正面",
+  back: "背面",
+  side: "侧面",
+  left_profile: "左侧脸",
+  right_profile: "右侧脸",
+};
+
 export type RsPerson = {
   id: string;
   /** 镜头内字母 A/B/C…(标注图与提示词使用)。 */
@@ -81,6 +98,8 @@ export type RsPerson = {
   description: string;
   confidence: number | null;
   method: "auto" | "manual";
+  /** 朝向(可手动指定;提示词中用于约束替换后姿态)。 */
+  orientation: RsOrientation;
   /** 跨镜头身份 id(聚类后);null = 未聚类。 */
   sourceCharacterId: string | null;
 };
@@ -114,12 +133,17 @@ export type RsShot = {
   imageActiveIndex: number;
   imageStatus: RsShotStatus;
   imageError: string | null;
+  /** 迭代参考:上次生成结果,作为下一轮的参考图。 */
+  referenceImagePath: string | null;
 
   videoPrompt: string;
   videoResults: RsGeneratedItem[];
   videoActiveIndex: number;
   videoStatus: RsShotStatus;
   videoError: string | null;
+
+  /** 倒放标记(切口剪辑器):素材化/合成时应用 reverse。 */
+  reversed: boolean;
 
   voiceText: string;
   voiceAudioPath: string | null;
@@ -226,6 +250,10 @@ export type RsProject = {
   audios: RsAudioAsset[];
   settings: RsSettings;
   history: RsHistoryEntry[];
+  /** 工作区 UI 态(选中镜头等),持久化便于恢复。 */
+  workspace: {
+    selectedShotId: string | null;
+  };
   compose: {
     finalVideoPath: string | null;
     finalAudioPath: string | null;
@@ -331,6 +359,7 @@ export function createRsProject(title: string): RsProject {
     audios: [],
     settings: defaultRsSettings(),
     history: [],
+    workspace: { selectedShotId: null },
     compose: {
       finalVideoPath: null,
       finalAudioPath: null,
@@ -514,6 +543,8 @@ export type RsBindingLine = {
   letter: string;
   label: string;
   description: string;
+  /** 朝向(未知时忽略)。 */
+  orientation?: RsOrientation;
   /** 参考图序号(1=原图,2=标注图,3+=目标形象),null=仅文字描述。 */
   imageIndex: number | null;
   scope: RsScope;
@@ -522,12 +553,13 @@ export type RsBindingLine = {
   appearancePrompt: string;
 };
 
-/** 图像替换提示词(含绑定、替换范围、场景引用)。 */
+/** 图像替换提示词(含绑定、替换范围、场景引用、迭代参考)。 */
 export function buildRsImagePrompt(opts: {
   template: string;
   shotLabel: string | null;
   bindings: RsBindingLine[];
   sceneRef?: { name: string; imageIndex: number | null } | null;
+  iterationRefLine?: string | null;
   fallback?: string;
 }): string {
   const bindingLines = opts.bindings.map((b) => {
@@ -540,6 +572,10 @@ export function buildRsImagePrompt(opts: {
   const scopeLines = opts.bindings
     .map((b) => `${b.letter}号人物：${RS_SCOPE_INSTRUCTIONS[b.scope]}`)
     .join("\n");
+  const orientationLines = opts.bindings
+    .filter((b) => b.orientation && b.orientation !== "unknown")
+    .map((b) => `${b.letter}号人物朝向：${RS_ORIENTATION_LABELS[b.orientation!]}（替换后保持此朝向与姿态）`)
+    .join("\n");
   const sceneLine = opts.sceneRef
     ? `【场景参考】场景应保持原图；如提供了场景参考图（参考图${opts.sceneRef.imageIndex ?? 0}），仅参考其布局与实景。`
     : "";
@@ -547,7 +583,10 @@ export function buildRsImagePrompt(opts: {
     .replaceAll("{shot}", opts.shotLabel ?? "本镜头")
     .replaceAll("{bindings}", bindingLines.join("；") || "提示中未分配目标人物")
     .replaceAll("{scopeLines}", scopeLines || "完整替换全部指定人物。");
-  return (prompt + (sceneLine ? `\n${sceneLine}` : "")).trim() || opts.fallback || "替换图中标注人物为目标参考形象，保持构图不变。";
+  const extraLines = [sceneLine, orientationLines, opts.iterationRefLine ?? ""]
+    .filter(Boolean)
+    .join("\n");
+  return (prompt + (extraLines ? `\n${extraLines}` : "")).trim() || opts.fallback || "替换图中标注人物为目标参考形象，保持构图不变。";
 }
 
 export function buildRsVideoPrompt(opts: {
@@ -679,6 +718,7 @@ export function normalizeRsProject(raw: any): RsProject | null {
         description: String(person?.description || ""),
         confidence: typeof person?.confidence === "number" ? person.confidence : null,
         method: person?.method === "manual" ? "manual" : "auto",
+        orientation: orientationSet.has(person?.orientation) ? person.orientation : "unknown",
         sourceCharacterId: person?.sourceCharacterId ? String(person.sourceCharacterId) : null,
       })),
       detectionStatus: "done",
@@ -688,11 +728,13 @@ export function normalizeRsProject(raw: any): RsProject | null {
       imageActiveIndex: Number(shot?.imageActiveIndex) || 0,
       imageStatus: "idle",
       imageError: shot?.imageError ? String(shot.imageError) : null,
+      referenceImagePath: shot?.referenceImagePath ? String(shot.referenceImagePath) : null,
       videoPrompt: String(shot?.videoPrompt || ""),
       videoResults: Array.isArray(shot?.videoResults) ? shot.videoResults : [],
       videoActiveIndex: Number(shot?.videoActiveIndex) || 0,
       videoStatus: "idle",
       videoError: shot?.videoError ? String(shot.videoError) : null,
+      reversed: shot?.reversed === true,
       voiceText: String(shot?.voiceText || ""),
       voiceAudioPath: shot?.voiceAudioPath ? String(shot.voiceAudioPath) : null,
       voiceStatus: "idle",
@@ -748,6 +790,11 @@ export function normalizeRsProject(raw: any): RsProject | null {
     })),
     settings: { ...defaultRsSettings(), ...(raw.settings || {}) },
     history: Array.isArray(raw.history) ? raw.history : [],
+    workspace: {
+      selectedShotId: raw?.workspace?.selectedShotId
+        ? String(raw.workspace.selectedShotId)
+        : null,
+    },
     compose: {
       finalVideoPath: raw?.compose?.finalVideoPath ? String(raw.compose.finalVideoPath) : null,
       finalAudioPath: raw?.compose?.finalAudioPath ? String(raw.compose.finalAudioPath) : null,
@@ -767,3 +814,43 @@ const scopeSet = new Set<RsScope>([
   "arm-hand",
   "feet",
 ]);
+
+const orientationSet = new Set<RsOrientation>([
+  "unknown",
+  "front",
+  "back",
+  "side",
+  "left_profile",
+  "right_profile",
+]);
+
+// ---------------------------------------------------------------------------
+// 业务校验与迭代参考
+// ---------------------------------------------------------------------------
+
+/** 同一镜头内多个不同人物框绑定同一目标角色 → 生成前拦截提示。 */
+export function findDuplicateBindings(
+  project: RsProject,
+  shot: RsShot,
+): string[] {
+  const seen = new Map<string, string>();
+  const duplicates: string[] = [];
+  for (const person of shot.people) {
+    const cluster = project.sourceCharacters.find((c) => c.id === person.sourceCharacterId);
+    if (!cluster?.targetCharacterId || !cluster.targetAppearanceId) continue;
+    const existing = seen.get(cluster.targetCharacterId);
+    if (existing) {
+      if (!duplicates.includes(existing)) duplicates.push(existing);
+    } else {
+      seen.set(cluster.targetCharacterId, person.label);
+    }
+  }
+  return duplicates;
+}
+
+/** 迭代参考说明行(如有参考图,附加到生成提示词末尾)。 */
+export function iterationReferenceLine(index: number | null): string {
+  return index !== null
+    ? `【迭代参考】参考图${index} 是上一轮生成的替换结果，仅作为风格与身份的参考基准，不要截断或复制其背景瑕疵。`
+    : "";
+}

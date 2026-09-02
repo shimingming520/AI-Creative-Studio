@@ -202,6 +202,7 @@ export function StudioMaterialStep({
             description: d.description,
             confidence: d.confidence,
             method: "auto",
+            orientation: "unknown",
             sourceCharacterId: null,
           }));
           for (const person of people) {
@@ -550,11 +551,13 @@ function makeShotFromMeta(
     imageActiveIndex: 0,
     imageStatus: "idle",
     imageError: null,
+    referenceImagePath: null,
     videoPrompt: "",
     videoResults: [],
     videoActiveIndex: 0,
     videoStatus: "idle",
     videoError: null,
+    reversed: false,
     voiceText: "",
     voiceAudioPath: null,
     voiceStatus: "idle",

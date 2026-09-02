@@ -13833,6 +13833,7 @@ function registerIpc() {
   registerReplacementStudioIpc();
   registerStoryWorkflowIpc();
   registerMediaToolIpc();
+  registerVoiceStudioIpc();
 }
 function registerSerpentIpc() {
   electron.ipcMain.handle("serpent:status", () => serpentHost.getState());
@@ -14172,7 +14173,7 @@ async function registerReplacementStudioIpc() {
       const start = Math.max(0, Number(request.startSec) || 0);
       const duration = Math.max(0.3, Number(request.durationSec) || 1);
       const target = uniqueOutput(outputDir2, `shot-${Date.now()}.mp4`);
-      const result2 = await rsRunFfmpeg(rsFfmpeg(), [
+      const args = [
         "-y",
         "-ss",
         start.toFixed(3),
@@ -14190,12 +14191,51 @@ async function registerReplacementStudioIpc() {
         "aac",
         "-b:a",
         "128k",
+      ];
+      if (request.reverse) {
+        // 倒放(切口剪辑器):reverse 滤镜作用于裁出的片段。
+        args.splice(args.indexOf("-c:v"), 0, "-vf", "reverse");
+      }
+      args.push(target);
+      const result2 = await rsRunFfmpeg(rsFfmpeg(), args);
+      if (!result2.ok || !node_fs.existsSync(target))
+        throw new Error(
+          (result2.stderr || "").trim().split(/\r?\n/).slice(-3).join("\n") ||
+            "裁切镜头片段失败",
+        );
+      return { path: target, durationSec: duration };
+    },
+    "rs:extract-shot-audio": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("源视频不存在");
+      const outputDir2 =
+        request.outputDir ||
+        outputDir() ||
+        node_path.join(
+          electron.app.getPath("userData"),
+          "replacement-studio-voice",
+        );
+      node_fs.mkdirSync(outputDir2, { recursive: true });
+      const start = Math.max(0, Number(request.startSec) || 0);
+      const duration = Math.max(0.3, Number(request.durationSec) || 1);
+      const target = uniqueOutput(outputDir2, `shot-audio-${Date.now()}.wav`);
+      const result2 = await rsRunFfmpeg(rsFfmpeg(), [
+        "-y",
+        "-ss",
+        start.toFixed(3),
+        "-i",
+        request.file,
+        "-t",
+        duration.toFixed(3),
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
         target,
       ]);
       if (!result2.ok || !node_fs.existsSync(target))
         throw new Error(
           (result2.stderr || "").trim().split(/\r?\n/).slice(-3).join("\n") ||
-            "裁切镜头片段失败",
+            "提取镜头原声失败",
         );
       return { path: target, durationSec: duration };
     },
@@ -14399,6 +14439,14 @@ async function registerStoryWorkflowIpc() {
       node_fs.writeFileSync(target, request.content, "utf8");
       return { path: target };
     },
+    "sw:open-replacement-studio": async () => {
+      // 剧本工作室 → 替换工作室 联动:先显示 Serpent 视图再切换子视图。
+      const ok = await serpentHost.openView("replacement-studio");
+      if (ok) {
+        void serpentHost.ensureComfyuiOutputLink(outputDir());
+      }
+      return ok;
+    },
   };
   for (const [channel, handler] of Object.entries(handlers)) {
     electron.ipcMain.handle(channel, (_event, ...args) =>
@@ -14539,6 +14587,207 @@ async function registerMediaToolIpc() {
         await canvas.jpeg({ quality: 96, mozjpeg: true }).toFile(outputPath);
       if (format === "webp") await canvas.webp({ quality: 96 }).toFile(outputPath);
       return result([outputPath], `拼图已生成(${count} 图 ${cols}×${rows})`);
+    },
+  };
+  for (const [channel, handler] of Object.entries(handlers)) {
+    electron.ipcMain.handle(channel, (_event, ...args) =>
+      handler(...args),
+    );
+  }
+}
+
+/**
+ * 语音工作室 (voice-studio) host bridge。
+ * vs:* 通道复用主进程既有引擎:whisper 转写(verbose_json 分段)、
+ * IndexTTS 克隆、TTS 音色设计、ffmpeg 抽音/合成;翻译走中转站 chat。
+ */
+async function registerVoiceStudioIpc() {
+  const handlers = {
+    "vs:status": async () => {
+      const [tts, indextts] = await Promise.all([
+        getTtsStatus().catch(() => null),
+        getIndexTtsStatus().catch(() => null),
+      ]);
+      return { tts, indextts };
+    },
+    "vs:extract-audio": async (request) => {
+      if (!request || !request.file || !node_fs.existsSync(request.file))
+        throw new Error("视频文件不存在");
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      node_fs.mkdirSync(dir, { recursive: true });
+      const target = uniqueOutput(dir, `${safeBase(request.file)}_audio.wav`);
+      const run = await rsRunFfmpeg(rsFfmpeg(), [
+        "-y",
+        "-i",
+        request.file,
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        target,
+      ]);
+      if (!run.ok || !node_fs.existsSync(target))
+        throw new Error(
+          (run.stderr || "").trim().split(/\r?\n/).slice(-3).join("\n") || "抽取音频失败",
+        );
+      return { path: target };
+    },
+    "vs:transcribe": async (request) => {
+      if (!request || !request.file || !request.providerId)
+        throw new Error("参数不足(缺少音频或中转站)");
+      if (!node_fs.existsSync(request.file)) throw new Error("音频文件不存在");
+      return transcribeWhisper({
+        audioPath: request.file,
+        providerId: request.providerId,
+        model: request.model || "whisper-1",
+        responseFormat: "verbose_json",
+        language: request.language || "",
+      });
+    },
+    "vs:clone-voice": async (request) => {
+      if (!request || !request.text || !request.refAudioPath)
+        throw new Error("参数不足(缺少台词或音色参考)");
+      if (!node_fs.existsSync(request.refAudioPath))
+        throw new Error("音色参考音频不存在");
+      const root =
+        outputDir() ||
+        node_path.join(electron.app.getPath("userData"), "voice-studio");
+      const result2 = await indexTtsClone({
+        text: request.text,
+        refAudioPath: request.refAudioPath,
+        lang: request.lang || "zh",
+        outputDir: request.outputDir || root,
+        durationFactor: request.durationFactor ?? 1,
+      });
+      if (result2.error) throw new Error(String(result2.error));
+      return { outputPath: result2.outputPath };
+    },
+    "vs:design-voice": async (request) => {
+      if (!request || !request.text || !request.design)
+        throw new Error("参数不足(缺少台词或音色设计描述)");
+      const root =
+        outputDir() ||
+        node_path.join(electron.app.getPath("userData"), "voice-studio");
+      const result2 = await ttsVoiceDesign({
+        text: request.text,
+        design: request.design,
+        lang: request.lang || "zh",
+        outputDir: request.outputDir || root,
+      });
+      if (result2.error) throw new Error(String(result2.error));
+      return { outputPath: result2.outputPath };
+    },
+    "vs:translate": async (request) => {
+      if (!request || !request.providerId || !request.model)
+        throw new Error("参数不足(缺少中转站或模型)");
+      if (!request.user || !String(request.user).trim())
+        throw new Error("缺少待翻译文本");
+      const result = await sendChat({
+        providerId: request.providerId,
+        model: String(request.model),
+        messages: [
+          {
+            role: "system",
+            content:
+              String(request.system || "").trim() ||
+              "你是专业的影视配音翻译,只输出 JSON。",
+          },
+          { role: "user", content: String(request.user) },
+        ],
+        temperature: 0.2,
+        stream: false,
+      });
+      return { text: extractChatText(result) };
+    },
+    "vs:concat-audio": async (request) => {
+      if (
+        !request ||
+        !Array.isArray(request.segments) ||
+        request.segments.length === 0
+      )
+        throw new Error("没有可合成的配音段");
+      for (const segment of request.segments) {
+        if (
+          !segment ||
+          !segment.audioPath ||
+          !node_fs.existsSync(segment.audioPath)
+        )
+          throw new Error("配音音频不存在(请先为分段配音)");
+      }
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      node_fs.mkdirSync(dir, { recursive: true });
+      const mixMode =
+        request.mixMode === "keep-original" ? "keep-original" : "dub-all";
+      const totalMs = Math.max(1000, Number(request.totalMs) || 1000);
+      const basePath =
+        mixMode === "keep-original" &&
+        request.basePath &&
+        node_fs.existsSync(request.basePath)
+          ? request.basePath
+          : null;
+      const inputs = [];
+      const parts = [];
+      if (basePath) {
+        inputs.push("-i", basePath);
+      } else {
+        inputs.push(
+          "-f",
+          "lavfi",
+          "-t",
+          (totalMs / 1000).toFixed(3),
+          "-i",
+          "anullsrc=r=44100:cl=stereo",
+        );
+      }
+      parts.push("[0:a]aresample=44100[base]");
+      const dubbed = [...request.segments].sort(
+        (a, b) => Number(a.startMs || 0) - Number(b.startMs || 0),
+      );
+      const dubLabels = [];
+      dubbed.forEach((segment, index) => {
+        inputs.push("-i", segment.audioPath);
+        const offsetMs = Math.max(0, Math.round(Number(segment.startMs) || 0));
+        parts.push(`[${index + 1}:a]aresample=44100,adelay=${offsetMs}|${offsetMs}[d${index}]`);
+        dubLabels.push(`[d${index}]`);
+      });
+      let filterLine;
+      if (dubbed.length === 0) {
+        filterLine = "[0:a]aresample=44100[out]";
+      } else {
+        const n = dubbed.length + 1;
+        filterLine = `[base]${dubLabels.join("")}amix=inputs=${n}:duration=first:dropout_transition=0,volume=${n}[out]`;
+      }
+      const outputPath = uniqueOutput(
+        dir,
+        `voice-studio-${/* @__PURE__ */ Date.now()}.wav`,
+      );
+      const run = await rsRunFfmpeg(rsFfmpeg(), [
+        "-y",
+        ...inputs,
+        "-filter_complex",
+        filterLine,
+        "-map",
+        "[out]",
+        "-c:a",
+        "pcm_s16le",
+        outputPath,
+      ]);
+      if (!run.ok || !node_fs.existsSync(outputPath))
+        throw new Error(
+          (run.stderr || "").trim().split(/\r?\n/).slice(-4).join("\n") || "合成音频失败",
+        );
+      return { outputPath, durationMs: totalMs };
     },
   };
   for (const [channel, handler] of Object.entries(handlers)) {

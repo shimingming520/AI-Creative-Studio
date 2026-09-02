@@ -2959,6 +2959,7 @@ const HOST_INVOKE_CHANNELS = new Set([
   'rs:smart-clip',
   'rs:extract-frame-at',
   'rs:materialize-shot',
+  'rs:extract-shot-audio',
   'rs:transcribe',
   'rs:clone-voice',
   'rs:save-file-dialog',
@@ -2966,11 +2967,20 @@ const HOST_INVOKE_CHANNELS = new Set([
   // 剧本工作室(阶段1:分镜脚本生成)
   'sw:generate-script',
   'sw:save-text',
+  'sw:open-replacement-studio',
   // 媒体工具(宫格/拼图/白板导出)
   'mt:split-grid',
   'mt:stitch-grid',
   'mt:collage',
   'mt:save-annotation',
+  // 语音工作室(字幕/翻译/配音/合成)
+  'vs:status',
+  'vs:extract-audio',
+  'vs:transcribe',
+  'vs:clone-voice',
+  'vs:design-voice',
+  'vs:translate',
+  'vs:concat-audio',
   'utilities:pick-images',
   'utilities:pick-video',
   'utilities:pick-files',
@@ -3041,6 +3051,7 @@ const host = Object.freeze({
   smartClip: (request: unknown) => hostInvoke('rs:smart-clip', request),
   extractFrameAt: (request: unknown) => hostInvoke('rs:extract-frame-at', request),
   materializeShot: (request: unknown) => hostInvoke('rs:materialize-shot', request),
+  extractShotAudio: (request: unknown) => hostInvoke('rs:extract-shot-audio', request),
   transcribe: (request: unknown) => hostInvoke('rs:transcribe', request),
   cloneVoice: (request: unknown) => hostInvoke('rs:clone-voice', request),
   saveFileDialog: (request: unknown) => hostInvoke('rs:save-file-dialog', request),
@@ -3052,12 +3063,27 @@ const host = Object.freeze({
     saveText: (request: unknown) => hostInvoke('sw:save-text', request),
   }),
 
+  // --- 剧本工作室 → 替换工作室 联动 ---
+  openReplacementStudio: () => hostInvoke('sw:open-replacement-studio'),
+
   // --- 媒体工具(宫格/拼图/白板导出,复用 YUH utilities 能力) ---
   mt: Object.freeze({
     splitGrid: (request: unknown) => hostInvoke('mt:split-grid', request),
     stitchGrid: (request: unknown) => hostInvoke('mt:stitch-grid', request),
     collage: (request: unknown) => hostInvoke('mt:collage', request),
     saveAnnotation: (request: unknown) => hostInvoke('mt:save-annotation', request),
+  }),
+
+  // --- 语音工作室(字幕识别/翻译/配音/合成) ---
+  vs: Object.freeze({
+    isHosted: () => hostedRenderer,
+    engines: () => hostInvoke('vs:status'),
+    extractAudio: (request: unknown) => hostInvoke('vs:extract-audio', request),
+    transcribe: (request: unknown) => hostInvoke('vs:transcribe', request),
+    cloneVoice: (request: unknown) => hostInvoke('vs:clone-voice', request),
+    designVoice: (request: unknown) => hostInvoke('vs:design-voice', request),
+    translate: (request: unknown) => hostInvoke('vs:translate', request),
+    concatAudio: (request: unknown) => hostInvoke('vs:concat-audio', request),
   }),
 });
 

@@ -4,10 +4,14 @@ import {
   buildRsVideoPrompt,
   clusterPeople,
   createRsProject,
+  findDuplicateBindings,
+  iterationReferenceLine,
   parseDetectedPeople,
   RS_CLUSTER_THRESHOLD,
   RS_MAX_PEOPLE,
   type RsBindingLine,
+  type RsProject,
+  type RsShot,
 } from "../../src/shared/replacement-studio";
 
 describe("replacement-studio / parseDetectedPeople", () => {
@@ -140,5 +144,123 @@ describe("replacement-studio / prompt builders", () => {
     expect(project.sources).toHaveLength(0);
     expect(project.shots).toHaveLength(0);
     expect(project.sourceCharacters.length).toBeLessThanOrEqual(RS_MAX_PEOPLE);
+    expect(project.workspace.selectedShotId).toBeNull();
+  });
+
+  it("emits orientation and iteration-reference lines", () => {
+    const prompt = buildRsImagePrompt({
+      template: "{bindings}",
+      shotLabel: "镜头 01",
+      bindings: [
+        {
+          letter: "A",
+          label: "人物A",
+          description: "",
+          orientation: "front",
+          imageIndex: 3,
+          scope: "full-person",
+          characterName: "艾米",
+          appearanceName: null,
+          appearancePrompt: "",
+        },
+      ],
+      iterationRefLine: iterationReferenceLine(5),
+    });
+    expect(prompt).toContain("A号人物朝向：正面");
+    expect(prompt).toContain("【迭代参考】参考图5");
+  });
+
+  it("detects duplicate target bindings within one shot", () => {
+    const project: RsProject = {
+      ...createRsProject("dup"),
+      sourceCharacters: [
+        {
+          id: "sc-a",
+          letter: "A",
+          label: "人物A",
+          personIds: ["p1"],
+          description: "",
+          scope: "full-person",
+          targetCharacterId: "char-1",
+          targetAppearanceId: "appa-1",
+        },
+        {
+          id: "sc-b",
+          letter: "B",
+          label: "人物B",
+          personIds: ["p2"],
+          description: "",
+          scope: "full-person",
+          targetCharacterId: "char-1",
+          targetAppearanceId: "appa-1",
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "艾米",
+          role: "",
+          description: "",
+          appearances: [{ id: "appa-1", name: "正脸", imagePath: null, prompt: "" }],
+          boundLetters: ["A", "B"],
+        },
+      ],
+    };
+    const shot: RsShot = {
+      id: "s1",
+      index: 1,
+      label: "镜头1",
+      sourceId: null,
+      startSec: 0,
+      endSec: 3,
+      durationSec: 3,
+      videoPath: null,
+      keyframePath: "f.png",
+      keyframeTimeSec: 0.6,
+      people: [
+        {
+          id: "p1",
+          letter: "A",
+          label: "人物A",
+          bbox: { x: 0, y: 0, w: 0.3, h: 0.6 },
+          description: "",
+          confidence: null,
+          method: "auto",
+          orientation: "unknown",
+          sourceCharacterId: "sc-a",
+        },
+        {
+          id: "p2",
+          letter: "B",
+          label: "人物B",
+          bbox: { x: 0.4, y: 0, w: 0.3, h: 0.6 },
+          description: "",
+          confidence: null,
+          method: "auto",
+          orientation: "unknown",
+          sourceCharacterId: "sc-b",
+        },
+      ],
+      detectionStatus: "done",
+      detectionError: null,
+      imagePrompt: "",
+      imageResults: [],
+      imageActiveIndex: 0,
+      imageStatus: "idle",
+      imageError: null,
+      referenceImagePath: null,
+      videoPrompt: "",
+      videoResults: [],
+      videoActiveIndex: 0,
+      videoStatus: "idle",
+      videoError: null,
+      reversed: false,
+      voiceText: "",
+      voiceAudioPath: null,
+      voiceStatus: "idle",
+      voiceError: null,
+      selected: true,
+    };
+    expect(findDuplicateBindings(project, shot)).toEqual(["人物A"]);
   });
 });

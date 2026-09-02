@@ -3,6 +3,7 @@ import WebSocket from "ws";
 
 const CDP_PORT = 9223;
 const FRAME = "C:/Users/shi/AppData/Local/Temp/rs-e2e/t2.png";
+const VIDEO = "C:/Users/shi/AppData/Local/Temp/rs-e2e/test-video.mp4";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -75,20 +76,23 @@ async function main() {
     const p = {
       version: 2, id: 'prod-' + Date.now().toString(36), title: '生产布局验证',
       createdAt: now, updatedAt: now, step: 'image',
-      sources: [], shots: [{
-        id: 'shot-1', index: 1, label: '镜头1', sourceId: null,
+      sources: [{ id: 'src-1', path: ${JSON.stringify(VIDEO)}, name: 'test-video.mp4', kind: 'video', durationSec: 9.02, width: 640, height: 360, keyframePath: null, analysisStatus: 'done', analysisError: null }],
+      shots: [{
+        id: 'shot-1', index: 1, label: '镜头1', sourceId: 'src-1',
         startSec: 0, endSec: 3.02, durationSec: 3.02, videoPath: null,
         keyframePath: ${JSON.stringify(FRAME)}, keyframeTimeSec: 0.6,
-        people: [{ id: 'ps-1', letter: 'A', label: '人物A', bbox: { x: 0.1, y: 0.2, w: 0.35, h: 0.6 }, description: '黑长发女性，红裙', confidence: 0.9, method: 'auto', sourceCharacterId: 'sc-a' }],
+        people: [{ id: 'ps-1', letter: 'A', label: '人物A', bbox: { x: 0.1, y: 0.2, w: 0.35, h: 0.6 }, description: '黑长发女性，红裙', confidence: 0.9, method: 'auto', orientation: 'unknown', sourceCharacterId: 'sc-a' }],
         detectionStatus: 'done', detectionError: null,
-        imagePrompt: '', imageResults: [], imageActiveIndex: 0, imageStatus: 'idle', imageError: null,
+        imagePrompt: '', imageResults: [], imageActiveIndex: 0, imageStatus: 'idle', imageError: null, referenceImagePath: null,
         videoPrompt: '', videoResults: [], videoActiveIndex: 0, videoStatus: 'idle', videoError: null,
+        reversed: false,
         voiceText: '', voiceAudioPath: null, voiceStatus: 'idle', voiceError: null, selected: true,
       }],
       sourceCharacters: [{ id: 'sc-a', letter: 'A', label: '人物A', personIds: ['ps-1'], description: '黑长发女性，红裙', scope: 'full-person', targetCharacterId: 'char-1', targetAppearanceId: 'appa-1' }],
       characters: [{ id: 'char-1', name: '艾米', role: '', description: '年轻女性', appearances: [{ id: 'appa-1', name: '正脸', imagePath: ${JSON.stringify(FRAME)}, prompt: '金色长发' }], boundLetters: ['A'] }],
       scenes: [], audios: [], settings: { providerId: '', imageModel: 'gpt-image-1', imageSize: 'auto', imageQuality: 'auto' },
       history: [],
+      workspace: { selectedShotId: 'shot-1' },
       compose: { finalVideoPath: null, finalAudioPath: null, status: 'idle', error: null, composedShotIds: [] },
     };
     await host.projectSave(p);
@@ -114,12 +118,15 @@ async function main() {
     return {
       fourPanel: Boolean(root.querySelector('.rs-four-panel.production')),
       boxes: root.querySelectorAll('.rs-box.v2').length,
+      manualBtn: Array.from(root.querySelectorAll('.rs-stage-tools .rs-btn')).some(b => /手动框选/.test(b.textContent)),
       bindingItems: root.querySelectorAll('.rs-binding-item').length,
       genPanel: Boolean(root.querySelector('.rs-generation-panel')),
       timelineCards: root.querySelectorAll('.rs-shot-card').length,
+      cutEditor: Boolean(root.querySelector('.rs-cut-editor')),
       activeStep: root.querySelector('.rs-step.active')?.textContent.trim() || '',
       hasPrompt: Boolean(root.querySelector('.rs-generation-copy textarea')),
       hasModel: Boolean(root.querySelectorAll('.rs-generation-copy select').length >= 2),
+      saveState: Boolean(root.querySelector('.rs-save-state')),
     };
   })()`);
   console.log("[prod]", JSON.stringify(state));

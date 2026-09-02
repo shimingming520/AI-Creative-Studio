@@ -59,6 +59,7 @@ import { TagManagementWorkspace } from "./TagManagementWorkspace";
 import { ReplacementStudioWorkspace } from "./replacement-studio/ReplacementStudioWorkspace";
 import { StoryboardScriptWorkspace } from "./storyboard-script/StoryboardScriptWorkspace";
 import { MediaToolsWorkspace } from "./media-tools/MediaToolsWorkspace";
+import { VoiceStudioWorkspace } from "./voice-studio/VoiceStudioWorkspace";
 import { useFolderDeleteActions } from "./use-folder-delete-actions";
 import { useFolderOrganizeActions } from "./use-folder-organize-actions";
 import { useFolderCommandShortcuts } from "./use-folder-command-shortcuts";
@@ -13083,6 +13084,9 @@ function AppInner() {
     )}
     {activeStudioView === "media-tools" && (
       <MediaToolsWorkspace onExit={() => setActiveStudioView(null)} />
+    )}
+    {activeStudioView === "voice-studio" && (
+      <VoiceStudioWorkspace onExit={() => setActiveStudioView(null)} />
     )}
     </>
   );

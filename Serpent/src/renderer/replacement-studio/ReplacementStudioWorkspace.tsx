@@ -66,6 +66,7 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState<RsProject | null>(null);
   const [createTitle, setCreateTitle] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null);
   const hostRef = useRef<RsHostApi | null>(null);
 
@@ -114,10 +115,17 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
     });
     const host = hostRef.current;
     if (!host) return;
+    setSaveState("saving");
     try {
       const result = await host.projectSave(next);
-      if (result && result.ok === false) setError(result.error || "项目保存失败");
+      if (result && result.ok === false) {
+        setSaveState("idle");
+        setError(result.error || "项目保存失败");
+      } else {
+        setSaveState("saved");
+      }
     } catch (reason) {
+      setSaveState("idle");
       setError(`项目保存失败: ${errorText(reason)}`);
     }
   }, []);
@@ -176,6 +184,17 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
     [current, updateProject],
   );
 
+  const selectShot = useCallback(
+    (shotId: string) => {
+      setSelectedShotId(shotId);
+      void updateProject((project) => ({
+        ...project,
+        workspace: { selectedShotId: shotId },
+      }));
+    },
+    [updateProject],
+  );
+
   const selectedShot = useMemo(() => {
     if (!current) return null;
     return current.shots.find((s) => s.id === selectedShotId) ?? current.shots[0] ?? null;
@@ -196,6 +215,11 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
         )}
         <span className="rs-spacer" />
         {current && <span className="rs-tag">已完成 {projectProgress(current)}%</span>}
+        {current && (
+          <span className="rs-save-state">
+            {saveState === "saving" ? "保存中…" : saveState === "saved" ? "已保存" : ""}
+          </span>
+        )}
         {current && (
           <button className="rs-btn danger" onClick={() => setConfirmDelete(current)}>
             删除项目
@@ -254,7 +278,7 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
                 project={current}
                 onChange={updateProject}
                 selectedShot={selectedShot}
-                onSelectShot={(shotId) => setSelectedShotId(shotId)}
+                onSelectShot={selectShot}
               />
             )}
             {current.step === "video" && (
@@ -262,7 +286,7 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
                 project={current}
                 onChange={updateProject}
                 selectedShot={selectedShot}
-                onSelectShot={(shotId) => setSelectedShotId(shotId)}
+                onSelectShot={selectShot}
               />
             )}
             {current.step === "voice" && (
@@ -270,7 +294,7 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
                 project={current}
                 onChange={updateProject}
                 selectedShot={selectedShot}
-                onSelectShot={(shotId) => setSelectedShotId(shotId)}
+                onSelectShot={selectShot}
               />
             )}
             {current.step === "compose" && (
@@ -287,7 +311,7 @@ export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void }) {
             onOpen={(project) => {
               void persist(project).then(() => {
                 setCurrentId(project.id);
-                setSelectedShotId(project.shots[0]?.id ?? null);
+                setSelectedShotId(project.workspace?.selectedShotId ?? project.shots[0]?.id ?? null);
               });
             }}
             onDelete={(project) => setConfirmDelete(project)}
@@ -425,9 +449,24 @@ function HomeView({
   return (
     <div className="rs-scroll center">
       <div style={{ width: "100%", maxWidth: 1100 }}>
+        <div className="rs-hero">
+          <div style={{ flex: "1 1 320px" }}>
+            <div className="title">替换工作室</div>
+            <div className="sub">
+              导入视频 → 智能裁剪（FFmpeg 场景检测，平衡/稳定/敏感）→ 检测人物 →
+              绑定目标形象 → 逐镜头替换 → 声音克隆 → 合成导出
+            </div>
+            <div className="sub">
+              生成与检测使用 YUH 中转站配置（AI 对话设置）；智能裁剪需本机 ffmpeg（可用 FFMPEG_PATH 指定）。
+            </div>
+          </div>
+          <button className="rs-btn primary" style={{ padding: "9px 18px", fontSize: 13 }} onClick={onCreateClick}>
+            ＋ 新建项目
+          </button>
+        </div>
         <div className="rs-home-head">
-          <h1>替换工作室 · 项目库</h1>
-          <p>导入视频 → 智能裁剪 → 人物替换 → 声音克隆 → 合成导出</p>
+          <h1>项目库</h1>
+          <p>最近更新优先显示</p>
         </div>
         <div className="rs-project-grid">
           <button className="rs-new-card" onClick={onCreateClick}>

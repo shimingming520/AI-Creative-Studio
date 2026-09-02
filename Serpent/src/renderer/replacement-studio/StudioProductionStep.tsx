@@ -6,17 +6,22 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildRsImagePrompt,
   buildRsVideoPrompt,
+  findDuplicateBindings,
+  iterationReferenceLine,
   letterAt,
   parseDetectedPeople,
   rsId,
   type RsBindingLine,
   type RsGeneratedItem,
+  type RsOrientation,
   type RsPerson,
   type RsProject,
   type RsShot,
+  type RsSourceCharacter,
 } from "../../shared/replacement-studio";
 import { ensureHostApi, errorText, type RsProviderInfo } from "./host";
 import { guideBoxesForCharacters, renderGuideImage } from "./guide-image";
+import { StudioCutEditor } from "./StudioCutEditor";
 import {
   BindingList,
   GenerationPanel,
@@ -205,8 +210,15 @@ function ProductionLayout({
     run(mode === "image" ? "生成替换图" : "生成替换视频", async () => {
       if (!shot) return;
       const host = await ensureHostApi();
-      if (mode === "image") await generateImageForShot(host, project, onChange, shot, shotBound);
-      else await generateVideoForShot(host, project, onChange, shot, shotBound, inputMode);
+      if (mode === "image") {
+        const duplicates = findDuplicateBindings(project, shot);
+        if (duplicates.length > 0) {
+          throw new Error(`同一镜头内角色不能重复绑定：${duplicates.join("、")}（请先在身份绑定中调整）`);
+        }
+        await generateImageForShot(host, project, onChange, shot, shotBound);
+      } else {
+        await generateVideoForShot(host, project, onChange, shot, shotBound, inputMode);
+      }
       force((v) => v + 1);
     });
 
@@ -269,6 +281,7 @@ function ProductionLayout({
           description: d.description,
           confidence: d.confidence,
           method: "auto",
+          orientation: "unknown",
           sourceCharacterId: null,
         }));
         await onChange((p) => ({
@@ -391,6 +404,103 @@ function ProductionLayout({
               characters={project.characters}
               selectedPersonId={selectedPersonId}
               onSelectPerson={setSelectedPersonId}
+              onPersonChanged={(personId, patch) =>
+                void onChange((p) => ({
+                  ...p,
+                  shots: p.shots.map((s) =>
+                    s.id === shot.id
+                      ? {
+                          ...s,
+                          people: s.people.map((person) =>
+                            person.id === personId ? { ...person, ...patch } : person,
+                          ),
+                        }
+                      : s,
+                  ),
+                }))
+              }
+              onAddManualPerson={(bbox) =>
+                void onChange((p) => ({
+                  ...p,
+                  shots: p.shots.map((s) =>
+                    s.id === shot.id
+                      ? {
+                          ...s,
+                          people: [
+                            ...s.people,
+                            {
+                              id: rsId("ps"),
+                              letter: letterAt(s.people.length),
+                              label: `人物${letterAt(s.people.length)}`,
+                              bbox,
+                              description: "手动框选",
+                              confidence: null,
+                              method: "manual" as const,
+                              orientation: "unknown" as const,
+                              sourceCharacterId: null,
+                            },
+                          ],
+                        }
+                      : s,
+                  ),
+                }))
+              }
+              onRemovePerson={(personId) => {
+                if (selectedPersonId === personId) setSelectedPersonId(null);
+                void onChange((p) => ({
+                  ...p,
+                  shots: p.shots.map((s) =>
+                    s.id === shot.id
+                      ? { ...s, people: s.people.filter((person) => person.id !== personId) }
+                      : s,
+                  ),
+                }));
+              }}
+              onBindPersonByDrag={(personId, characterId, appearanceId) =>
+                void onChange((p) => {
+                  let targetClusterId: string | null = null;
+                  for (const s of p.shots) {
+                    const person = s.people.find((pp) => pp.id === personId);
+                    if (person) {
+                      if (person.sourceCharacterId) {
+                        targetClusterId = person.sourceCharacterId;
+                        break;
+                      }
+                      const cluster: RsSourceCharacter = {
+                        id: rsId("sc2"),
+                        letter: person.letter,
+                        label: person.label,
+                        personIds: [person.id],
+                        description: person.description,
+                        scope: "full-person",
+                        targetCharacterId: characterId,
+                        targetAppearanceId: appearanceId,
+                      };
+                      targetClusterId = cluster.id;
+                      return {
+                        ...p,
+                        sourceCharacters: [...p.sourceCharacters, cluster],
+                        shots: p.shots.map((s2) => ({
+                          ...s2,
+                          people: s2.people.map((pp) =>
+                            pp.id === personId ? { ...pp, sourceCharacterId: cluster.id } : pp,
+                          ),
+                        })),
+                      };
+                    }
+                  }
+                  return targetClusterId
+                    ? {
+                        ...p,
+                        sourceCharacters: p.sourceCharacters.map((c) =>
+                          c.id === targetClusterId
+                            ? { ...c, targetCharacterId: characterId, targetAppearanceId: appearanceId }
+                            : c,
+                        ),
+                      }
+                    : p;
+                })
+              }
               onPrev={prevShot}
               onNext={nextShot}
               canPrev={shotIndex > 0}
@@ -409,6 +519,15 @@ function ProductionLayout({
             />
           )}
         </div>
+        {project.sources[0]?.kind === "video" && shot.sourceId && (
+          <StudioCutEditor
+            project={project}
+            shot={shot}
+            source={project.sources.find((s) => s.id === shot.sourceId) ?? project.sources[0] ?? null}
+            onChange={onChange}
+            onSelectShot={onSelectShot}
+          />
+        )}
         <ShotTimeline
           shots={project.shots}
           selectedShotId={shot.id}
@@ -426,6 +545,7 @@ function ProductionLayout({
             item={activeItem}
             index={activeIndex}
             total={results.length}
+            items={results}
             onPrev={() =>
               void onChange((p) => ({
                 ...p,
@@ -442,6 +562,49 @@ function ProductionLayout({
                 shots: p.shots.map((s) =>
                   s.id === shot.id
                     ? { ...s, [mode === "image" ? "imageActiveIndex" : "videoActiveIndex"]: Math.min(results.length - 1, activeIndex + 1) }
+                    : s,
+                ),
+              }))
+            }
+            onSelectIndex={(index) =>
+              void onChange((p) => ({
+                ...p,
+                shots: p.shots.map((s) =>
+                  s.id === shot.id
+                    ? { ...s, [mode === "image" ? "imageActiveIndex" : "videoActiveIndex"]: index }
+                    : s,
+                ),
+              }))
+            }
+            onSetReference={
+              mode === "image"
+                ? (item) =>
+                    void onChange((p) => ({
+                      ...p,
+                      shots: p.shots.map((s) =>
+                        s.id === shot.id ? { ...s, referenceImagePath: item.outputPath } : s,
+                      ),
+                    }))
+                : undefined
+            }
+            onRemove={(item) =>
+              void onChange((p) => ({
+                ...p,
+                shots: p.shots.map((s) =>
+                  s.id === shot.id
+                    ? {
+                        ...s,
+                        [mode === "image" ? "imageResults" : "videoResults"]: (mode === "image" ? s.imageResults : s.videoResults).filter(
+                          (entry) => entry.id !== item.id,
+                        ),
+                        [mode === "image" ? "imageActiveIndex" : "videoActiveIndex"]: Math.max(
+                          0,
+                          Math.min(
+                            activeIndex - 1,
+                            (mode === "image" ? s.imageResults : s.videoResults).length - 2,
+                          ),
+                        ),
+                      }
                     : s,
                 ),
               }))
@@ -664,6 +827,8 @@ function VideoStage({
   canPrev: boolean;
   canNext: boolean;
 }) {
+  const [cutting, setCutting] = useState(false);
+  const [cutMessage, setCutMessage] = useState("");
   const activeImage = shot.imageResults[shot.imageActiveIndex] ?? null;
   const appearance = useMemo(() => {
     if (inputMode !== "character-ref") return null;
@@ -672,8 +837,33 @@ function VideoStage({
     const character = project.characters.find((c) => c.id === cluster.targetCharacterId);
     return character?.appearances.find((a) => a.id === cluster.targetAppearanceId) ?? null;
   }, [inputMode, project.sourceCharacters, project.characters]);
-  const sourcePath = project.sources[0]?.path ?? null;
+  const source = project.sources.find((s) => s.id === shot.sourceId) ?? project.sources[0] ?? null;
+  const sourcePath = source?.path ?? null;
   const path = inputMode === "first-frame" && activeImage ? activeImage.outputPath : (appearance?.imagePath ?? sourcePath ?? "");
+
+  const trimCurrentClip = async () => {
+    if (!source || source.kind !== "video") {
+      setCutMessage("需要视频素材才能裁剪当前片段");
+      return;
+    }
+    setCutting(true);
+    setCutMessage("");
+    try {
+      const host = await ensureHostApi();
+      const clip = await host.materializeShot({
+        file: source.path,
+        startSec: shot.startSec,
+        durationSec: shot.durationSec,
+        reverse: shot.reversed,
+      });
+      await host.showItem(clip.path);
+      setCutMessage("当前片段已裁剪: " + clip.path.split(/[\\/]/).pop());
+    } catch (reason) {
+      setCutMessage(`裁剪失败: ${errorText(reason)}`);
+    } finally {
+      setCutting(false);
+    }
+  };
 
   return (
     <div className="rs-stage-shell">
@@ -691,6 +881,14 @@ function VideoStage({
           onClick={() => setInputMode("character-ref")}
         >
           人物参考图
+        </button>
+        <button
+          className="rs-btn ghost"
+          disabled={cutting}
+          onClick={() => void trimCurrentClip()}
+          title="用 FFmpeg 切出当前镜头片段并在文件夹中显示"
+        >
+          {cutting ? "裁剪中…" : "裁剪当前片段"}
         </button>
         {canPrev && (
           <button className="rs-btn ghost" onClick={onPrev} title="上一镜头">
@@ -712,6 +910,11 @@ function VideoStage({
           </div>
         )}
       </div>
+      {cutMessage && (
+        <p className="rs-muted" style={{ padding: "6px 10px", fontSize: 11 }}>
+          {cutMessage}
+        </p>
+      )}
     </div>
   );
 }
@@ -724,7 +927,12 @@ function toFileUrl(p: string): string {
 // 生成实现
 // ---------------------------------------------------------------------------
 type ShotBoundItem = {
-  person: { letter: string; label: string; bbox: { x: number; y: number; w: number; h: number } };
+  person: {
+    letter: string;
+    label: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    orientation?: RsOrientation;
+  };
   cluster: { scope: RsBindingLine["scope"] };
   character: { name: string } | null;
   appearance: { name: string; prompt: string; imagePath: string | null } | null;
@@ -768,6 +976,7 @@ async function generateImageForShot(
       letter: item.person.letter,
       label: item.person.label,
       description: item.character?.name ?? "",
+      orientation: item.person.orientation ?? "unknown",
       imageIndex,
       scope: item.cluster.scope,
       characterName: item.character?.name ?? "",
@@ -782,12 +991,19 @@ async function generateImageForShot(
     appearancePaths.push(sceneRef.imagePath);
     sceneImageIndex = appearancePaths.length + 2;
   }
+  // 迭代参考:上一轮生成结果,作为最后一张参考图。
+  let iterationRefLine: string | null = null;
+  if (shot.referenceImagePath && !appearancePaths.includes(shot.referenceImagePath)) {
+    appearancePaths.push(shot.referenceImagePath);
+    iterationRefLine = iterationReferenceLine(appearancePaths.length + 2);
+  }
 
   const prompt = buildRsImagePrompt({
     template: project.settings.imagePromptTemplate,
     shotLabel: shot.label,
     bindings,
     sceneRef: sceneRef ? { name: sceneRef.name, imageIndex: sceneImageIndex } : null,
+    iterationRefLine,
   });
 
   const references: { kind: "image"; path: string }[] = [
