@@ -1387,6 +1387,22 @@
   margin-top: 4px;
 }
 
+/* 项目库筛选 */
+.rs-filter {
+  appearance: none;
+  border: 1px solid #34343a;
+  background: #1d1d21;
+  color: #e8e9ec;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+  width: 220px;
+}
+.rs-filter:focus {
+  border-color: #3d8a63;
+}
+
 /* 保存状态 */
 .rs-save-state {
   font-size: 11px;

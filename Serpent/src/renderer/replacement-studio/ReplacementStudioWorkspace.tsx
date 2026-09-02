@@ -418,6 +418,10 @@ function HomeView({
   onOpen: (project: RsProject) => void;
   onDelete: (project: RsProject) => void;
 }) {
+  const [filter, setFilter] = useState("");
+  const filtered = filter.trim()
+    ? projects.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+    : projects;
   const [previews, setPreviews] = useState<Record<string, string | null>>({});
   useEffect(() => {
     const need = projects.filter((p) => p.shots[0]?.keyframePath && !(p.id in previews));
@@ -467,13 +471,20 @@ function HomeView({
         <div className="rs-home-head">
           <h1>项目库</h1>
           <p>最近更新优先显示</p>
+          <span style={{ flex: 1 }} />
+          <input
+            className="rs-filter"
+            value={filter}
+            placeholder="按项目名称筛选…"
+            onChange={(event) => setFilter(event.target.value)}
+          />
         </div>
         <div className="rs-project-grid">
           <button className="rs-new-card" onClick={onCreateClick}>
             <span className="plus">＋</span>
             新建项目
           </button>
-          {projects.map((project) => {
+          {filtered.map((project) => {
             const progress = projectProgress(project);
             const imageCount = project.shots.reduce((n, s) => n + s.imageResults.length, 0);
             return (
@@ -527,9 +538,11 @@ function HomeView({
             );
           })}
         </div>
-        {projects.length === 0 && (
+        {filtered.length === 0 && (
           <p className="rs-muted" style={{ marginTop: 12 }}>
-            还没有项目。点击「新建项目」开始：导入视频 → 智能裁剪 → 检测人物 → 绑定目标形象 → 逐镜头替换。
+            {projects.length === 0
+              ? "还没有项目。点击「新建项目」开始：导入视频 → 智能裁剪 → 检测人物 → 绑定目标形象 → 逐镜头替换。"
+              : `没有匹配「${filter}」的项目。`}
           </p>
         )}
       </div>
