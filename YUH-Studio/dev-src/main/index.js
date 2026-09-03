@@ -3102,6 +3102,12 @@ function restartBackend(onLog) {
   });
   return backendRestartPromise;
 }
+async function ensureEngineReady() {
+  if (await isHealthy()) return;
+  const status = await restartBackend(() => {});
+  if (status.state !== "ready")
+    throw new Error(status.message || "本地引擎尚未就绪");
+}
 async function finalizeFromHistory(taskId, record, onUpdate) {
   const outputCandidates = Object.values(record.outputs || {}).flatMap((item) => [
     ...(Array.isArray(item?.images) ? item.images : []),
@@ -3666,7 +3672,7 @@ async function uploadReference(reference, taskId) {
   return `${result2.subfolder}/${result2.name}`.replace(/\\/g, "/");
 }
 async function runCanvasImageTool(request) {
-  if (!(await isHealthy())) throw new Error("本地生成引擎尚未就绪");
+  await ensureEngineReady();
   await prepareLocalMode("image");
   if (!request.file || !node_fs.existsSync(request.file))
     throw new Error("找不到要处理的原始图片");
@@ -3822,7 +3828,7 @@ async function createGeneration(request, onUpdate) {
         `H3 引擎切换${needsPytorchBase ? "长视频稳定基础注意力" : needsLongVideoEngineMode ? "15 秒安全显存" : "标准"}模式失败：${status.message}`,
       );
   }
-  if (!(await isHealthy())) throw new Error("本地 H3 引擎尚未就绪");
+  await ensureEngineReady();
   if (!request.prompt.trim()) throw new Error("请输入视频提示词");
   const requestedAccelerationLoras = request.accelerationLoras?.length
     ? request.accelerationLoras
@@ -3951,7 +3957,7 @@ async function remapLoraNames(loras, label) {
 }
 async function createImageGeneration(request, onUpdate) {
   ensureTasksLoaded();
-  if (!(await isHealthy())) throw new Error("生成引擎尚未就绪");
+  await ensureEngineReady();
   const hasImageReference = (request.references || []).some(
     (item) => item.kind === "image",
   );
@@ -4064,11 +4070,72 @@ function releaseLocalGenerationGpu(onUpdate) {
     setBackendMessage("本地生成模型已卸载，显存可用于视觉反推");
   });
 }
+function killProcessTree(child) {
+  if (!child || child.killed || !child.pid) return;
+  if (process.platform === "win32") {
+    try {
+      const result2 = node_child_process.spawnSync(
+        "taskkill.exe",
+        ["/PID", String(child.pid), "/T", "/F"],
+        { windowsHide: true, timeout: 1e4, stdio: "ignore" },
+      );
+      if (result2.status !== 0) child.kill("SIGKILL");
+    } catch {
+      try {
+        child.kill("SIGKILL");
+      } catch {}
+    }
+  } else {
+    try {
+      child.kill("SIGKILL");
+    } catch {}
+  }
+}
+function killComfyEngines() {
+  // 结束本机所有 ComfyUI 引擎进程（以配置的 comfyuiDir 下的 python 运行 main.py 为准），
+  // 覆盖：应用自己启动的引擎、被顺手接管的已有引擎、以及另外启动的 Comfy Desktop 实例。
+  try {
+    const dir = getWorkspaceSettings().comfyuiDir || "";
+    if (!dir) return;
+    const dirEscaped = dir.replace(/'/g, "''");
+    const script = [
+      `$d = '${dirEscaped}'`,
+      "$all = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\"",
+      "$targets = $all | Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('main.py') -and (($_.ExecutablePath -and $_.ExecutablePath.ToLower().Contains($d.ToLower())) -or $_.CommandLine.ToLower().Contains($d.ToLower())) } | Select-Object -ExpandProperty ProcessId",
+      "$targets | ForEach-Object { & taskkill /PID $_ /T /F 2>$null | Out-Null }",
+    ].join("; ");
+    node_child_process.spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: 3e4, stdio: "ignore" },
+    );
+  } catch {}
+}
 async function unloadAllGpuMemory() {
+  setBackendMessage("正在彻底清理本应用显存…");
+  // 1) 优雅卸载模型权重（ComfyUI /free + TTS / IndexTTS /unload）
   await releaseLocalGenerationGpu();
+  // 2) 结束本应用启动的全部 GPU 进程（连同子进程树），把显存与 CUDA 上下文一并归还
+  const engine = backendProcess;
+  stopBackend();
+  killProcessTree(engine);
+  // 3) 结束本机所有 ComfyUI 引擎进程（含接管/外置的 Comfy Desktop 实例），释放被占用的显存
+  setBackendMessage("正在结束本机所有 ComfyUI 引擎并释放显存…");
+  killComfyEngines();
+  try {
+    stopTts();
+  } catch {}
+  try {
+    stopIndexTts();
+  } catch {}
   const { stopVisionReverse: stopVisionReverse2 } =
     await Promise.resolve().then(() => visionReverse);
-  await stopVisionReverse2();
+  try {
+    await stopVisionReverse2();
+  } catch {}
+  // 4) 稍候片刻，让系统回收显存
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  setBackendMessage("显存已全部清理（ComfyUI 引擎已结束，需重新启动引擎再生成）");
 }
 const backend = /* @__PURE__ */ Object.freeze(
   /* @__PURE__ */ Object.defineProperty(
@@ -4944,7 +5011,13 @@ async function saveImageOutput(extracted, request) {
   const date = /* @__PURE__ */ new Date().toISOString().slice(0, 10);
   const outputRoot = configuredOutputDir();
   if (!outputRoot) throw new Error("请先在存储设置中选择输出文件夹");
-  const directory = node_path.join(outputRoot, "CloudImages", date);
+  // 工作台项目归档：请求可携带 projectSubdir(如「替换工作室/<项目id>」)，
+  // 命中时把该项目的生成物写到 outputDir()/<projectSubdir>/，便于资源管理按
+  // 项目分级浏览(每个项目目录只含本项目资源)。缺省保持原 CloudImages/<date>。
+  const projectSubdir = String(request.projectSubdir || "").trim();
+  const directory = projectSubdir
+    ? node_path.join(outputRoot, projectSubdir)
+    : node_path.join(outputRoot, "CloudImages", date);
   await promises.mkdir(directory, { recursive: true });
   const target = node_path.join(
     directory,
@@ -5071,11 +5144,15 @@ async function saveVideoOutput(url, request) {
     throw new Error(`视频生成成功，但下载结果失败 (${response.status})`);
   const outputRoot = configuredOutputDir();
   if (!outputRoot) throw new Error("请先在存储设置中选择输出文件夹");
-  const directory = node_path.join(
-    outputRoot,
-    "CloudVideos",
-    /* @__PURE__ */ new Date().toISOString().slice(0, 10),
-  );
+  // 工作台项目归档：见 saveImageOutput 的同名说明。
+  const projectSubdir = String(request.projectSubdir || "").trim();
+  const directory = projectSubdir
+    ? node_path.join(outputRoot, projectSubdir)
+    : node_path.join(
+        outputRoot,
+        "CloudVideos",
+        /* @__PURE__ */ new Date().toISOString().slice(0, 10),
+      );
   node_fs.mkdirSync(directory, { recursive: true });
   const target = node_path.join(
     directory,
@@ -5286,11 +5363,15 @@ async function generateCloudVideo(request, signal) {
 async function saveAudioOutput(buffer, request, extension) {
   const outputRoot = configuredOutputDir();
   if (!outputRoot) throw new Error("请先在存储设置中选择输出文件夹");
-  const directory = node_path.join(
-    outputRoot,
-    "CloudAudio",
-    /* @__PURE__ */ new Date().toISOString().slice(0, 10),
-  );
+  // 工作台项目归档：见 saveImageOutput 的同名说明。
+  const projectSubdir = String(request.projectSubdir || "").trim();
+  const directory = projectSubdir
+    ? node_path.join(outputRoot, projectSubdir)
+    : node_path.join(
+        outputRoot,
+        "CloudAudio",
+        /* @__PURE__ */ new Date().toISOString().slice(0, 10),
+      );
   await promises.mkdir(directory, { recursive: true });
   const target = node_path.join(
     directory,
@@ -5718,6 +5799,43 @@ function rsRunFfmpeg(ffmpegBin, args) {
 function rsFfmpeg() {
   const configured = String(process.env.FFMPEG_PATH || "").trim();
   return configured || "ffmpeg";
+}
+/** ffprobe 定位(与 rsFfmpeg 同源:FFMPEG_PATH 目录下的 ffprobe,否则走 PATH)。 */
+function rsFfprobe() {
+  const configured = String(process.env.FFMPEG_PATH || "").trim();
+  if (configured && node_fs.existsSync(configured)) {
+    const dir = node_path.dirname(configured);
+    const probe = node_path.join(dir, "ffprobe.exe");
+    if (node_fs.existsSync(probe)) return probe;
+  }
+  return "ffprobe";
+}
+/** 用 ffprobe 取媒体时长(秒);失败返回 0。 */
+async function probeDuration(filePath) {
+  return new Promise((resolveResult) => {
+    try {
+      const child = node_child_process.spawn(rsFfprobe(), [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        filePath,
+      ], { windowsHide: true });
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.once("error", () => resolveResult(0));
+      child.once("exit", () => {
+        const value = Number.parseFloat(stdout.trim());
+        resolveResult(Number.isFinite(value) ? value : 0);
+      });
+    } catch {
+      resolveResult(0);
+    }
+  });
 }
 function uniqueOutput(directory, desiredName) {
   const extension = node_path.extname(desiredName);
@@ -12882,7 +13000,7 @@ async function validateCustomWorkflowFile(filePath) {
 
 async function runCustomWorkflowTask(request, onUpdate) {
   ensureTasksLoaded();
-  if (!(await isHealthy())) throw new Error("本地 H3 引擎尚未就绪");
+  await ensureEngineReady();
   if (!request?.path) throw new Error("未选择工作流文件");
   const busy = [...tasks.values()].some(
     (task) =>
@@ -13834,6 +13952,7 @@ function registerIpc() {
   registerStoryWorkflowIpc();
   registerMediaToolIpc();
   registerVoiceStudioIpc();
+  registerPipelineIpc();
 }
 function registerSerpentIpc() {
   electron.ipcMain.handle("serpent:status", () => serpentHost.getState());
@@ -13871,6 +13990,10 @@ function registerSerpentIpc() {
     );
     return true;
   });
+  electron.ipcMain.handle("workbench:tree", () => workbenchResourceTree());
+  electron.ipcMain.handle("workbench:ensure-project-dir", (_event, subdir) =>
+    workbenchEnsureProjectDir(subdir),
+  );
   serpentHost.onState((state) => {
     const win = getMainWindow();
     if (win && !win.isDestroyed()) {
@@ -13917,6 +14040,58 @@ function replacementStudioWriteIndex(list) {
     "utf8",
   );
 }
+
+/**
+ * 工作台资源树(供给 Serpent 侧栏「工作台资源」分级)。每个工作室是一个分级,
+ * 其下是按项目划分的资源目录。路径与云端生成一致:
+ *   输出根/<工作室>/<项目id>/
+ * 只返回真实存在项目元数据的工作室(替换工作室来自 projects.json)。后续
+ * 剧本工作室等可在此追加。
+ */
+function workbenchResourceTree() {
+  const outputRoot = configuredOutputDir() || outputDir();
+  const studios = [];
+  const rsProjects = replacementStudioReadIndex().map((meta) => ({
+    id: String(meta.id || ""),
+    title: String(meta.title || "未命名替换项目"),
+    dir: node_path.join(outputRoot, "替换工作室", String(meta.id || "")),
+  }));
+  // 分类始终存在(即使暂无项目),侧栏才能在对应分级下新增/展示项目目录。
+  studios.push({
+    studio: "替换工作室",
+    slug: "replacement-studio",
+    projects: rsProjects,
+  });
+  return studios;
+}
+
+/**
+ * 确保工作台项目资源目录存在(输出根/<项目子目录>),供剧本工作室等在
+ * 打开工作台时立即建立项目目录,资源管理「工作台资源」也能立刻显示该项目。
+ * 校验子目录不能越出输出根,防止目录穿越。
+ */
+function workbenchEnsureProjectDir(subdir) {
+  const outputRoot = configuredOutputDir() || outputDir();
+  const safe = String(subdir || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .trim();
+  if (!safe) return { ok: false, error: "缺少项目子目录" };
+  const rootResolved = node_path.resolve(outputRoot);
+  const resolved = node_path.resolve(outputRoot, safe);
+  if (
+    resolved !== rootResolved &&
+    !resolved.startsWith(rootResolved + node_path.sep)
+  ) {
+    return { ok: false, error: "非法项目目录" };
+  }
+  try {
+    node_fs.mkdirSync(resolved, { recursive: true });
+    return { ok: true, dir: resolved };
+  } catch (error) {
+    return { ok: false, error: String((error && error.message) || error) };
+  }
+}
 function replacementStudioMeta(project) {
   const p = project || {};
   return {
@@ -13944,22 +14119,51 @@ async function registerReplacementStudioIpc() {
       }
       return { projects: out };
     },
-    "rs:project-save": (project) => {
-      if (!project || typeof project !== "object" || !project.id)
+    "rs:project-save": (projectOrLibrary) => {
+      // 迁移版 ShuoCanvas 的自动保存器提交的是项目库容器({ projects: [...] }),
+      // 新版 React 工作室提交的是单个项目。两种格式都要支持。
+      const projects = Array.isArray(projectOrLibrary?.projects)
+        ? projectOrLibrary.projects
+        : projectOrLibrary?.project && typeof projectOrLibrary.project === "object"
+          ? [projectOrLibrary.project]
+          : [projectOrLibrary];
+      const validProjects = projects.filter(
+        (project) => project && typeof project === "object" && project.id,
+      );
+      // 空项目库是合法的初始状态(用户尚未创建可持久化项目),直接视为成功。
+      if (!validProjects.length) {
+        if (Array.isArray(projectOrLibrary?.projects)) return { ok: true };
         throw new Error("无效的项目数据");
-      const meta = replacementStudioMeta(project);
+      }
       try {
         node_fs.mkdirSync(replacementStudioDir(), { recursive: true });
-        node_fs.writeFileSync(
-          replacementStudioProjectFile(meta.id),
-          JSON.stringify(project, null, 2),
-          "utf8",
+        const indexById = new Map(
+          replacementStudioReadIndex().map((item) => [item.id, item]),
         );
-        const index = replacementStudioReadIndex().filter(
-          (item) => item.id !== meta.id,
-        );
-        index.push(meta);
-        replacementStudioWriteIndex(index);
+        for (const project of validProjects) {
+          const meta = replacementStudioMeta(project);
+          node_fs.writeFileSync(
+            replacementStudioProjectFile(meta.id),
+            JSON.stringify(project, null, 2),
+            "utf8",
+          );
+          indexById.set(meta.id, meta);
+          // 项目一创建就建立其专属资源目录,资源管理「工作台资源」才能立刻
+          // 出现该项目文件夹(经「ComfyUI 输出」链接递归收录)并只显示本项目资源。
+          try {
+            node_fs.mkdirSync(
+              node_path.join(
+                configuredOutputDir() || outputDir(),
+                "替换工作室",
+                meta.id,
+              ),
+              { recursive: true },
+            );
+          } catch {
+            // 输出目录不可写时忽略,不影响项目元数据保存。
+          }
+        }
+        replacementStudioWriteIndex([...indexById.values()]);
         return { ok: true };
       } catch (error) {
         return {
@@ -14796,6 +15000,73 @@ async function registerVoiceStudioIpc() {
     );
   }
 }
+
+/**
+ * 成片流水线 glue(pipeline)host bridge。
+ * pp:* 通道把「替换工作室视频 × 语音工作室音频」mux 成最终成片(音轨替换/补齐)。
+ * 命令规格与 Serpent/src/shared/pipeline.ts::buildMuxArgs 保持一致。
+ */
+async function registerPipelineIpc() {
+  const handlers = {
+    "pp:mux-video": async (request) => {
+      if (
+        !request ||
+        !request.videoPath ||
+        !request.audioPath ||
+        String(request.videoPath) === String(request.audioPath)
+      )
+        throw new Error("参数不足(缺少视频/音频,或两者相同)");
+      if (!node_fs.existsSync(request.videoPath))
+        throw new Error("视频文件不存在");
+      if (!node_fs.existsSync(request.audioPath))
+        throw new Error("音频文件不存在");
+      const dir = request.outputDir && String(request.outputDir).trim()
+        ? String(request.outputDir)
+        : outputDir() && node_fs.existsSync(outputDir())
+          ? outputDir()
+          : storyboardDir();
+      node_fs.mkdirSync(dir, { recursive: true });
+      const videoCodec = String(request.videoCodec || "copy");
+      const audioBitrate = String(request.audioBitrate || "192k");
+      const syncToVideo = request.syncToVideo !== false;
+      const outputPath = uniqueOutput(dir, `成片-${/* @__PURE__ */ Date.now()}.mp4`);
+      const args = [
+        "-y",
+        "-i",
+        request.videoPath,
+        "-i",
+        request.audioPath,
+      ];
+      if (syncToVideo) {
+        const durationSec = await probeDuration(request.videoPath);
+        if (!durationSec || durationSec <= 0)
+          throw new Error("无法获取视频时长,无法对齐音轨");
+        // apad 补齐音轨 + -t 限到视频时长(避免 apad 与 -shortest 组合挂起)。
+        args.push("-filter_complex", "[1:a]apad[aout]");
+        args.push("-map", "0:v:0");
+        args.push("-map", "[aout]");
+        args.push("-t", String(durationSec));
+      } else {
+        args.push("-map", "0:v:0", "-map", "1:a:0");
+      }
+      args.push("-c:v", videoCodec);
+      args.push("-c:a", "aac", "-b:a", audioBitrate);
+      args.push("-movflags", "+faststart");
+      args.push(outputPath);
+      const run = await rsRunFfmpeg(rsFfmpeg(), args);
+      if (!run.ok || !node_fs.existsSync(outputPath))
+        throw new Error(
+          (run.stderr || "").trim().split(/\r?\n/).slice(-4).join("\n") || "成片导出失败",
+        );
+      return { outputPath };
+    },
+  };
+  for (const [channel, handler] of Object.entries(handlers)) {
+    electron.ipcMain.handle(channel, (_event, ...args) =>
+      handler(...args),
+    );
+  }
+}
 if (process.argv.includes("--hidden")) {
   process.env.YUNHUI_AUTOSTART = "1";
 }
@@ -14824,6 +15095,10 @@ electron.app.whenReady().then(() => {
   // 保留 YUH_SERPENT_AUTOMOUNT=1 以支持旧自动挂载 / smoke 验证路径。
   if (serpentHost.enabled() && process.env.YUH_SERPENT_AUTOMOUNT === "1") {
     void serpentHost.show();
+  } else if (serpentHost.enabled()) {
+    // Serpent 是 YUH 的内嵌模块：启动后后台预热 Worker/DB/渲染器，
+    // 首次点击资源管理时只做挂载，不再承担模块初始化耗时。
+    void serpentHost.prewarm();
   }
   try {
     if (readAutoStartSettings().autoShare) {

@@ -188,7 +188,10 @@
             // 子视图已打开：切回资源库视图（保持 Serpent 可见）。
             activeSubView = null;
             const close = a.openView ? a.openView("serpent") : null;
-            return Promise.resolve(close);
+            return Promise.resolve(close).then((ok) => {
+              if (!ok) activeSubView = null;
+              syncButtons();
+            });
           }
           return a.toggle ? a.toggle() : undefined;
         },
@@ -253,8 +256,11 @@
       setEntryActive(btn, syncingActive && activeSubView === entryId);
     }
     setEntryActive(resourceBtn, syncingActive && !activeSubView);
+    // 「资源管理」永远可点击。onClick 对 activeSubView 已单独处理：子视图打开
+    // 时点击会回到资源库视图（openView("serpent")）。之前这里在子视图打开时把
+    // 按钮置为 disabled，导致「点替换工作室/剧本工作室后无法再点资源管理」。
     if (resourceBtn) {
-      resourceBtn.disabled = Boolean(activeSubView);
+      resourceBtn.disabled = false;
     }
   }
 

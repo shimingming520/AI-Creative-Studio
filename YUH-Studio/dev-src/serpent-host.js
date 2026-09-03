@@ -83,13 +83,13 @@ function installDiag() {
 installDiag();
 // --- end DSH diagnostic instrumentation ---
 
-// 默认 Serpent 目录：仓库内 `AI-Creative-Studio/Serpent`（YUH 已移入同仓库）。
-// __dirname = <repo>/YUH-Studio/dev-src, 向上 2 级 = <repo>, 再进 Serpent。
+// YUH-Studio 是宿主项目主目录。Serpent 仅提供源码，hosted 运行时统一
+// 放到 YUH-Studio/build/serpent，避免运行时路径落到 Serpent 项目目录。
 const SERPENT_ROOT = process.env.SERPENT_ROOT || path.join(
   __dirname,
   "..",
-  "..",
-  "Serpent",
+  "build",
+  "serpent",
 );
 const SERPENT_BUILD = path.join(SERPENT_ROOT, ".vite", "hosted-build");
 const SERPENT_PRELOAD = path.join(SERPENT_ROOT, ".vite", "build", "index.js");
@@ -106,10 +106,12 @@ let serpentMain = null; // Serpent 主进程模块（patched build）
 let serpView = null; // WebContentsView
 let hostWindow = null; // YUH 主窗口（dialog parent）
 let started = false; // Serpent 服务已启动
+let servicesStartPromise = null; // 防止预热与首次点击并发启动两次 Worker
 let shutdownDone = false;
 let resizeHandler = null;
 let viewAttached = false; // 嵌入视图当前是否可见（在 contentView 中）
 let lastError = null;
+let viewInitPromise = null; // 防止首次点击与后台预热重复创建 WebContentsView
 let railWidthPx = 0; // 渲染进程上报的侧边栏实测宽度
 let railLeftPx = 0; // 侧边栏右边缘（渲染进程坐标）
 let bodyTopPx = 0; // 内容区顶部（渲染进程坐标）
@@ -170,6 +172,23 @@ function preload() {
     return false;
   }
   process.env.SERPENT_HOSTED = "1";
+  // hosted 产物放在 YUH-Studio/build/serpent，但原生依赖仍来自 Serpent
+  // 工程的 node_modules；显式注入 NODE_PATH，供 Library Worker 解析
+  // better-sqlite3、sharp 等外部依赖。
+  const hostedDependencies = path.join(SERPENT_ROOT, "node_modules");
+  const sourceDependencyCandidates = [
+    path.join(__dirname, "..", "Serpent", "node_modules"),
+    path.join(__dirname, "..", "..", "Serpent", "node_modules"),
+  ];
+  const serpentDependencies = [hostedDependencies, ...sourceDependencyCandidates]
+    .filter((directory) => require("node:fs").existsSync(directory));
+  process.env.SERPENT_NODE_MODULES = serpentDependencies.join(path.delimiter);
+  process.env.NODE_PATH = [serpentDependencies.join(path.delimiter), process.env.NODE_PATH || ""]
+    .filter(Boolean)
+    .join(path.delimiter);
+  try {
+    require("node:module").Module._initPaths();
+  } catch {}
   // Serpent 数据与宿主隔离：放进宿主 userData 的子目录，避免污染宿主的
   // workspace-settings.json 等。Serpent 只在 app 层用 getPath('userData')。
   process.env.SERPENT_USER_DATA_DIR = path.join(
@@ -227,12 +246,18 @@ function layoutView() {
  */
 async function ensureServices() {
   if (started) return true;
-  mark("mount:startSerpentHosted");
-  await serpentMain.startSerpentHosted();
-  started = true;
-  mark("mount:services-started");
-  console.log("[serpent-host] Serpent services started (worker/DB + offscreen)");
-  return true;
+  if (servicesStartPromise) return servicesStartPromise;
+  servicesStartPromise = (async () => {
+    mark("mount:startSerpentHosted");
+    await serpentMain.startSerpentHosted();
+    started = true;
+    mark("mount:services-started");
+    console.log("[serpent-host] Serpent services started (worker/DB + offscreen)");
+    return true;
+  })().finally(() => {
+    servicesStartPromise = null;
+  });
+  return servicesStartPromise;
 }
 
 /**
@@ -242,6 +267,7 @@ async function ensureServices() {
  * 丢弃旧视图并重建一个新的。
  */
 async function ensureView() {
+  if (viewInitPromise) return viewInitPromise;
   if (serpView) {
     const wc = serpView.webContents;
     if (wc && !wc.isDestroyed()) return true;
@@ -255,19 +281,20 @@ async function ensureView() {
     serpView = null;
     viewAttached = false;
   }
-  // 宿主窗口回调需要真实 BrowserWindow。
-  const win = getYuhWindow();
-  hostWindow = win;
-  if (!win) {
-    mark("mount:ERROR", "no host window found for dialog parent");
-    lastError = "no host window found for dialog parent";
-    return false;
-  }
-  serpentMain.setSerpentHostedDialogWindow(win);
-  win.on("resize", layoutView);
+  viewInitPromise = (async () => {
+    // 宿主窗口回调需要真实 BrowserWindow。
+    const win = getYuhWindow();
+    hostWindow = win;
+    if (!win) {
+      mark("mount:ERROR", "no host window found for dialog parent");
+      lastError = "no host window found for dialog parent";
+      return false;
+    }
+    serpentMain.setSerpentHostedDialogWindow(win);
+    win.on("resize", layoutView);
 
   // 创建嵌入视图：Serpent 自己的 preload + sandbox。
-  const view = new WebContentsView({
+    const view = new WebContentsView({
     webPreferences: {
       preload: SERPENT_PRELOAD, // Serpent preload bundle (.vite/build/index.js)
       contextIsolation: true,
@@ -275,34 +302,56 @@ async function ensureView() {
       sandbox: true,
       webSecurity: false, // 与 YUH dev 行为一致：file:// 下加载本地资源
     },
-  });
-  serpView = view;
-  mark("mount:view-created");
+    });
+    serpView = view;
+    mark("mount:view-created");
 
   // 把视图 webContents 交给 Serpent（所有 send/授权检查都改为查它）。
-  serpentMain.setSerpentHostedRenderer(view.webContents);
+    serpentMain.setSerpentHostedRenderer(view.webContents);
 
   // 加载 Serpent 渲染器。?serpentHosted=1 让 renderer 隐藏自绘的
   // 最小化/最大化/关闭标题栏按钮（宿主窗口自带这些控制）。
-  mark("mount:loadFile", SERPENT_RENDERER_HTML);
-  await view.webContents.loadFile(SERPENT_RENDERER_HTML, {
-    query: { serpentHosted: "1" },
-  });
-  mark("mount:renderer-loaded");
-  console.log("[serpent-host] renderer loaded:", SERPENT_RENDERER_HTML);
+    mark("mount:loadFile", SERPENT_RENDERER_HTML);
+    await view.webContents.loadFile(SERPENT_RENDERER_HTML, {
+      query: { serpentHosted: "1" },
+    });
+    mark("mount:renderer-loaded");
+    console.log("[serpent-host] renderer loaded:", SERPENT_RENDERER_HTML);
 
   // 挂载探测：等 renderer 的 .app-shell 出现。
-  const mounted = await waitForMounted(view.webContents, 20_000);
-  mark("mount:mounted", String(mounted));
-  console.log(
-    mounted
-      ? "[serpent-host] renderer MOUNTED (.app-shell)"
-      : "[serpent-host] renderer did NOT mount within timeout",
-  );
-  if (mounted && process.env.YUH_SERPENT_SMOKE === "1") {
-    await runSmoke(view.webContents);
+    const mounted = await waitForMounted(view.webContents, 20_000);
+    mark("mount:mounted", String(mounted));
+    console.log(
+      mounted
+        ? "[serpent-host] renderer MOUNTED (.app-shell)"
+        : "[serpent-host] renderer did NOT mount within timeout",
+    );
+    if (mounted && process.env.YUH_SERPENT_SMOKE === "1") {
+      await runSmoke(view.webContents);
+    }
+    return mounted;
+  })().finally(() => {
+    viewInitPromise = null;
+  });
+  return viewInitPromise;
+}
+
+/**
+ * 后台预热 Serpent：启动 Worker/DB 并提前加载嵌入渲染器，但不把视图挂到界面上。
+ * 这样资源管理按钮只需执行一次 attach，避免把“模块首次启动”延迟到用户点击。
+ */
+async function prewarm() {
+  if (!enabled() || !serpentMain) return false;
+  try {
+    await ensureServices();
+    return await ensureView();
+  } catch (error) {
+    lastError = String(error && error.stack ? error.stack : error);
+    mark("prewarm:ERROR", lastError);
+    console.error("[serpent-host] prewarm failed:", error);
+    pushState();
+    return false;
   }
-  return mounted;
 }
 
 /**
@@ -387,8 +436,18 @@ async function toggle() {
 async function openView(viewId) {
   const ok = await show();
   if (ok && serpView && !serpView.webContents.isDestroyed()) {
-    mark("open-view:send", String(viewId || ""));
-    serpView.webContents.send("serpent-host:open-view", String(viewId || ""));
+    const requestedViewId = String(viewId || "");
+    // 首次加载时 React 的 onOpenView effect 可能晚于 mount 探测完成，
+    // 单次 send 会被丢弃，表现为侧栏已高亮但内容仍停在资源库。短暂重发
+    // 只发送视图 ID(幂等)，兼容首次挂载和已有视图切换两种情况。
+    const send = () => {
+      if (!serpView || serpView.webContents.isDestroyed()) return;
+      mark("open-view:send", requestedViewId);
+      serpView.webContents.send("serpent-host:open-view", requestedViewId);
+    };
+    send();
+    setTimeout(send, 120);
+    setTimeout(send, 360);
   }
   return ok;
 }
@@ -777,6 +836,7 @@ module.exports = {
   hide,
   toggle,
   openView,
+  prewarm,
   shutdown,
   enabled,
   getState,

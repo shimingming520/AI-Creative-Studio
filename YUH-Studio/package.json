@@ -7,9 +7,10 @@
   "main": "dev-src/main/index.js",
   "scripts": {
     "sync-engine": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-engine.ps1",
-    "start": "npm run sync-engine && electron .",
-    "start:dev": "npm run sync-engine && electron .",
-    "dev": "npm run sync-engine && electron .",
+    "build:serpent-hosted": "node scripts/build-serpent-hosted.mjs",
+    "start": "npm run sync-engine && npm run build:serpent-hosted && electron .",
+    "start:dev": "npm run sync-engine && npm run build:serpent-hosted && electron .",
+    "dev": "npm run sync-engine && npm run build:serpent-hosted && electron .",
     "check": "node --check dev-src/main/index.js && node --check dev-src/preload/index.js && node --check dev-src/renderer/assets/index-B9rdyvCR.js",
     "typecheck": "tsc --noEmit -p ui-src/tsconfig.json",
     "ui:dev": "vite --config ui-src/vite.config.mts",

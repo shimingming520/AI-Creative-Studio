@@ -39,6 +39,18 @@ Serpent 侧栏（Serpent`src/renderer/NavigationSidebar.tsx`）新增固定分�
 - 按类型分级：全部生成资产 / 图像 / 视频 / 音频 / 其他，统计数量随资产变更（fs watcher 收录新生成物）自动刷新；点击行浏览对应类型（链接文件夹递归范围 + `format` 过滤），支持搜索、标签、收藏、删除等常规资源管理操作。
 - 未配置/未链接时该分区隐藏或显示提示；独立运行 Serpent 可用环境变量 `SERPENT_GENERATED_ASSETS_ROOT` 指定同一目录。
 
+## 工作台资源分级（资源管理按工作室/项目隔离）
+
+针对「点进替换工作室后资源管理无法点击」的回归，以及「所有资产混在一起」的诉求做了两件事：
+
+- **导航修复**：`dev-src/serpent-sidebar-inject.js` 里 `syncButtons()` 此前在子视图（替换工作室等）打开时把「资源管理」按钮 `disabled`，但该按钮的 `onClick` 本已处理「切回资源库」逻辑，导致进入替换工作室后无法再点资源管理。已移除该 `disabled`，点击「资源管理」随时返回资源库（`openView("serpent")`）。
+- **按项目归档**：各工作室生成/保存的图片、视频、音频现在可带 `projectSubdir`（如「替换工作室/<项目id>」）写入 `输出根/<工作室>/<项目id>/`，而不是混进全局 `CloudImages/<date>`。替换工作室在生成图/视频时传入 `替换工作室/<project.id>`；剧本工作室按标题生成 `剧本工作室/<标题>`。由于「ComfyUI 输出」链接文件夹是递归索引，这些项目目录会自动成为资源管理里可分别浏览的虚拟子文件夹（每个项目只含本项目资源）。
+- **侧栏「工作台资源」分级**：Serpent 侧栏新增「工作台资源」分区，按工作室分级列出项目（当前为「替换工作室」+「剧本工作室」），点击项目行进入该项目自己的资源目录。分级数据一分为二：替换工作室由主进程 `workbench:tree` 提供（`dev-src/main/index.js::workbenchResourceTree`，读 `<userData>/serpent/replacement-studio/projects.json`）；剧本工作室是「单草稿=一个项目」，由渲染层直接读 `localStorage(sw:draft:v1)` 生成一个分级（`App.tsx::storyboardWorkbenchGroup`）。
+- **进入项目时自动定位**：工作室切回到资源管理时，若记录到正在编辑的工作台项目，资源管理会自动定位到该项目自己的资源目录（`App.tsx` 的 `activeWorkbenchProject` + 关闭工作室时的 `chooseFolder`）。
+- **项目目录即到即建**：替换工作室在 `rs:project-save` 时为其建立 `输出根/替换工作室/<项目id>` 目录；剧本工作室在打开工作台时经 `workbench:ensure-project-dir` 建立 `输出根/剧本工作室/<项目id>`。这样「工作台资源」分级下每个项目目录能立即出现，且只含本项目资源。
+
+主要改动文件：`dev-src/serpent-sidebar-inject.js`（导航修复）、`dev-src/main/index.js`（`saveImageOutput/saveVideoOutput/saveAudioOutput` 支持 `projectSubdir` + `workbench:tree`）、`Serpent/src/renderer/App.tsx` 与 `NavigationSidebar.tsx`（工作台资源分区 + 自动定位）、`Serpent/src/renderer/replacement-studio/*` 与 `storyboard-script/*`（按项目归档 + 上报当前项目）。
+
 ## 替换工作室（迁移自 ShuoCanvas personReplacement 核心流程）
 
 左侧边栏（原版 UI「无限画布」之下、资源管理之上）新增「替换工作室」入口；点击后显示
@@ -93,9 +105,9 @@ node scripts/hosted-rebuild.mjs
 
 ## 剧本工作室与媒体工具（并行轨道）
 
-替换工作室之外，新开了两条并行轨道，模式与替换工作室一致（Serpent 渲染层 +
+替换工作室之外，新开了几条并行轨道，模式与替换工作室一致（Serpent 渲染层 +
 YUH 中转站/既有工具能力 + 输出目录落盘）。侧栏注入已泛化为多子视图状态机
-（`activeSubView`），三个工作室入口共用「再次点击收起 / 点击其它切换」行为，
+（`activeSubView`），各工作室入口共用「再次点击收起 / 点击其它切换」行为，
 回归测试见 `scripts/test-serpent-sidebar.cjs`。
 
 ### Track A — 剧本工作室 · 分镜脚本 + 资产设定 + 批量生成（view id: `storyboard-script`）
@@ -141,6 +153,50 @@ YUH 中转站/既有工具能力 + 输出目录落盘）。侧栏注入已泛化
   `mt:save-annotation`（代理 `saveCanvasAnnotation`），全部输出到
   「存储设置 → 输出文件夹」，落盘后资源管理「生成资产」自动可见。主进程实现见
   `dev-src/main/index.js::registerMediaToolIpc()`。
+
+### Track C — 语音工作室 · 字幕识别 → 翻译 → 配音 → 合成（view id: `voice-studio`）
+- 纯逻辑与类型：`Serpent/src/shared/voice-studio.ts`（`segmentsFromWhisper`
+  whisper verbose_json 分段秒→毫秒、`parseSrtToSegments`/`parseVttToSegments`
+  字幕兜底、`splitTextToSegments` 无时间轴时按字符均摊估算、
+  `formatMs`、翻译提示词 `buildTranslationSystemPrompt`/`buildTranslationUserPrompt`
+  （整表共享上下文、按段 id 回填）、`parseTranslationResult`（JSON/数组/fenced 解析）、
+  `dubPlan`/`estimateSpeechDurationMs`/`buildTimeline`（基础轨 + 配音覆盖时间轴）），
+  单测 `Serpent/tests/unit/voice-studio.test.ts`。
+- 工作区：`Serpent/src/renderer/voice-studio/VoiceStudioWorkspace.tsx`，四步流程：
+  ① 素材（音频直接转写，视频经 ffmpeg 自动抽音）→ ② 字幕识别（中转站 + whisper
+  模型 + 语言；分段文本可直接编辑）→ ③ 翻译（目标语言批量翻译并逐段回填）→
+  ④ 配音（每段可选 保留原声 / 音色克隆 IndexTTS / 音色设计 TTS，可批量生成并逐段
+  试听）→ ⑤ 合成（保留原声或全部替换，按分段时间轴预览 + 导出）。引擎就绪状态
+  （IndexTTS/TTS）在配音步骤顶部显示。草稿存 localStorage `vs:draft:v1`。
+- 宿主桥（复用既有引擎）：`vs:status`（TTS/IndexTTS 就绪状态）、
+  `vs:extract-audio`（ffmpeg 抽音）、`vs:transcribe`（`transcribeWhisper`
+  verbose_json 分段）、`vs:clone-voice`（`indexTtsClone`）、
+  `vs:design-voice`（`ttsVoiceDesign`）、`vs:translate`（中转站 chat）、
+  `vs:concat-audio`（ffmpeg `amix` + `adelay` 按分段时间轴合成，`volume=N` 恢复
+  amix 归一化）。主进程实现见 `dev-src/main/index.js::registerVoiceStudioIpc()`。
+- 联动：合成出的音频可被替换工作室「声音克隆」步骤复用；后续可接视频对口型 / 合成。
+
+### 成片流水线（Track C 收尾 · 视频 × 音频 → 成片）
+
+把前几条轨道的产物串成一条可产出成片的链：
+**剧本工作室(分镜) → 替换工作室(人物替换/声音克隆 → `rs:compose` 合成视频) →
+语音工作室(整段音轨) → 成片导出(`pp:mux-video`)**。
+
+- 纯逻辑与类型：`Serpent/src/shared/pipeline.ts`（`buildMuxArgs` 成片 mux 命令
+  规格、`recommendOutputName` 时间戳文件名、`muxInputIssue` 输入校验），单测
+  `Serpent/tests/unit/pipeline.test.ts`。
+- 真实酸检：`Serpent/tests/integration/pipeline.integration.test.ts` —— 用真实
+  ffmpeg 生成测试视频 + 音频，再按 `buildMuxArgs` 规格 mux 成成片，断言产出
+  `成片.mp4`（`-c:v copy` + `-c:a aac` + `-t 视频时长` 对齐音轨；注意
+  `apad` 与 `-shortest` 组合会挂起，故用 `-t` 限制、去掉 `-shortest`）。需
+  ffmpeg 在 PATH 上。
+- 宿主桥：`pp:mux-video`（主进程 `registerPipelineIpc()`：校验视频/音频存在、
+  `rsFfprobe` 探测视频时长、`apad` 补齐 + `-t` 限长 + `-c:v copy` + `-c:a aac`
+  导出成片，`uniqueOutput` 防覆盖）。
+- 联动：替换工作室「合成全部视频并导出」成功后，
+  `StudioVoiceCompose.tsx` 会把成片路径写入 localStorage `vs:incoming-video`；
+  语音工作室「④ 合成」完成后新增「成片导出」行，自动带上该视频，「合成成片」
+  一键 mux 出最终 mp4。
 
 ### 并行开发约定
 

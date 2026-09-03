@@ -96357,6 +96357,18 @@ function App() {
                       value: systemUsage.memoryPercent,
                       detail: `${systemUsage.memoryUsedGb}/${systemUsage.memoryTotalGb}G`,
                     }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("button", {
+                      className: "resource-clean",
+                      title: "清理显存（结束本机所有 ComfyUI 引擎并释放全部显存）",
+                      onClick: () => {
+                        void window.h3.backend
+                          .unloadGpu()
+                          .then(() => window.h3.system.usage())
+                          .then(setSystemUsage)
+                          .catch(() => void 0);
+                      },
+                      children: "显存清理",
+                    }),
                   ],
                 }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", {
