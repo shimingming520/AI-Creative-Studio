@@ -86,12 +86,82 @@ function patchStoryEpisodePlanningAssets() {
   fs.writeFileSync(generationApiFile, generationApi);
 }
 
+// 页面切换会重新挂载剧本工作室，但不会结束同一窗口中的生成任务。
+// 该补丁在每次同步原始 ShuoCanvas 后重放，避免任务状态被误判为应用关闭。
+function patchStoryTaskPersistence() {
+  const base = path.join(serpentRoot, "src", "renderer", "shuocanvas-legacy", "src", "modules", "storyWorkspace");
+  const backgroundFile = path.join(base, "storyBackgroundTasks.js");
+  const taskStateFile = path.join(base, "storyProjectTaskState.js");
+  let background = fs.readFileSync(backgroundFile, "utf8");
+  if (!background.includes("RUNTIME_ACTIVE_TASKS_KEY")) {
+    background = background.replace(
+      "const MAX_PERSISTED_TASKS = 60;",
+      `const MAX_PERSISTED_TASKS = 60;
+const RUNTIME_ACTIVE_TASKS_KEY = "__yuhStoryRuntimeActiveTasks";
+function getRuntimeActiveTasks() {
+  const root = globalThis;
+  if (!(root[RUNTIME_ACTIVE_TASKS_KEY] instanceof Set)) root[RUNTIME_ACTIVE_TASKS_KEY] = new Set();
+  return root[RUNTIME_ACTIVE_TASKS_KEY];
+}
+function runtimeTaskKey(projectId, taskId) {
+  const project = normalizeText(projectId);
+  const task = normalizeText(taskId);
+  return project && task ? project + "::" + task : "";
+}
+function syncRuntimeTaskMarker(projectData = {}, task = {}) {
+  const key = runtimeTaskKey(projectData?.project?.id, task?.id);
+  if (!key) return;
+  if (ACTIVE_STATUSES.has(normalizeText(task?.status).toLowerCase())) getRuntimeActiveTasks().add(key);
+  else getRuntimeActiveTasks().delete(key);
+}
+export function hasStoryBackgroundTaskRuntime(projectData = {}) {
+  const projectId = normalizeText(projectData?.project?.id);
+  if (!projectId) return false;
+  const prefix = projectId + "::";
+  for (const key of getRuntimeActiveTasks()) if (key.startsWith(prefix)) return true;
+  return false;
+}`
+    );
+    background = background.replace(
+      "  setStoryBackgroundTasks(_0x2833fb, [_0x24943c, ..._0x19309c]);\n  return _0x24943c;",
+      "  setStoryBackgroundTasks(_0x2833fb, [_0x24943c, ..._0x19309c]);\n  syncRuntimeTaskMarker(_0x2833fb, _0x24943c);\n  return _0x24943c;"
+    );
+    background = background.replace(
+      "  setStoryBackgroundTasks(_0x3face5, _0x5ada97);\n  return _0x33ce0a;",
+      "  setStoryBackgroundTasks(_0x3face5, _0x5ada97);\n  syncRuntimeTaskMarker(_0x3face5, _0x33ce0a);\n  return _0x33ce0a;"
+    );
+    background = background.replace(
+      "  if (_0xe9f57b) {\n    setStoryBackgroundTasks(_0x55ea4f, _0x4fe563);\n  }",
+      "  if (_0xe9f57b) {\n    setStoryBackgroundTasks(_0x55ea4f, _0x4fe563);\n    _0x4fe563.forEach(_0x30a433 => syncRuntimeTaskMarker(_0x55ea4f, _0x30a433));\n  }"
+    );
+    fs.writeFileSync(backgroundFile, background);
+  }
+  let taskState = fs.readFileSync(taskStateFile, "utf8");
+  if (!taskState.includes("hasStoryBackgroundTaskRuntime")) {
+    taskState = taskState.replace(
+      'import { settleInterruptedStoryVideoReplication } from "./storyVideoReplication.js";',
+      'import { settleInterruptedStoryVideoReplication } from "./storyVideoReplication.js";\nimport { hasStoryBackgroundTaskRuntime } from "./storyBackgroundTasks.js";'
+    );
+    taskState = taskState.replace(
+      "export function reconcilePersistedStoryProjectTasks(_0x785346 = {}) {",
+      "export function reconcilePersistedStoryProjectTasks(_0x785346 = {}, {\n  preserveActiveTasks = hasStoryBackgroundTaskRuntime(_0x785346)\n} = {}) {"
+    );
+    taskState = taskState.replace(
+      "  let _0x57ff0d = interruptStoryBackgroundTasks(_0x785346, {",
+      "  let _0x57ff0d = preserveActiveTasks ? 0 : interruptStoryBackgroundTasks(_0x785346, {"
+    );
+    fs.writeFileSync(taskStateFile, taskState);
+  }
+}
+
 patchStoryEpisodePlanningAssets();
+patchStoryTaskPersistence();
 execFileSync(process.execPath, [path.join(serpentRoot, "scripts", "hosted-rebuild.mjs")], {
   cwd: serpentRoot,
   stdio: "inherit",
 });
 patchStoryEpisodePlanningAssets();
+patchStoryTaskPersistence();
 fs.rmSync(outRoot, { recursive: true, force: true });
 fs.mkdirSync(outRoot, { recursive: true });
 const viteRoot = path.join(outRoot, ".vite");
