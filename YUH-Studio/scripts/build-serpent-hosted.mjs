@@ -38,6 +38,7 @@ const sourceRoots = [
   path.join(serpentRoot, "vite.worker.config.ts"),
   path.join(serpentRoot, "scripts", "hosted-rebuild.mjs"),
 ];
+
 // 原始 ShuoCanvas 是替换工作室的唯一参考源；纳入新鲜度判断，确保用户
 // 修改原项目或重新同步后，YUH 不会继续加载旧的 hosted 构建。
 const shuocanvasRoot = process.env.SHUOCANVAS_ROOT || "F:\\PyCharm_Project\\ShuoCanvas";
@@ -57,11 +58,30 @@ if (process.env.YUH_REBUILD_SERPENT !== "1" && readyFiles.every((file) => fs.exi
   process.exit(0);
 }
 
+function patchStoryEpisodePlanningAssets() {
+  const base = path.join(serpentRoot, "src", "renderer", "shuocanvas-legacy", "src", "modules", "storyWorkspace");
+  const workspaceFile = path.join(base, "storyWorkspace.js");
+  const applicationFile = path.join(base, "storyEpisodeOutlineApplication.js");
+  let workspace = fs.readFileSync(workspaceFile, "utf8");
+  if (!workspace.includes("assets: Array.isArray(_0x4162fa?.assets)")) {
+    workspace = workspace.replace("      project: _0x396255,\n      model:", "      project: _0x396255,\n      assets: Array.isArray(_0x4162fa?.assets) ? _0x4162fa.assets : [],\n      model:");
+    fs.writeFileSync(workspaceFile, workspace);
+  }
+  let application = fs.readFileSync(applicationFile, "utf8");
+  if (!application.includes("assets: Array.isArray(assets) ? assets : [],")) {
+    application = application.replace("    project = {},\n    constraints = {},", "    project = {},\n    assets = [],\n    constraints = {},");
+    application = application.replace("        project: project,\n        constraints: constraints,", "        project: project,\n        assets: Array.isArray(assets) ? assets : [],\n        constraints: constraints,");
+    application = application.replace("        project: _0x19f2f0.project,\n        constraints: _0x19f2f0.project.planning,", "        project: _0x19f2f0.project,\n        assets: _0x19f2f0.assets,\n        constraints: _0x19f2f0.project.planning,");
+    fs.writeFileSync(applicationFile, application);
+  }
+}
+
+patchStoryEpisodePlanningAssets();
 execFileSync(process.execPath, [path.join(serpentRoot, "scripts", "hosted-rebuild.mjs")], {
   cwd: serpentRoot,
   stdio: "inherit",
 });
-
+patchStoryEpisodePlanningAssets();
 fs.rmSync(outRoot, { recursive: true, force: true });
 fs.mkdirSync(outRoot, { recursive: true });
 const viteRoot = path.join(outRoot, ".vite");
