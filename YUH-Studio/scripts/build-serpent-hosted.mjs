@@ -62,6 +62,7 @@ function patchStoryEpisodePlanningAssets() {
   const base = path.join(serpentRoot, "src", "renderer", "shuocanvas-legacy", "src", "modules", "storyWorkspace");
   const workspaceFile = path.join(base, "storyWorkspace.js");
   const applicationFile = path.join(base, "storyEpisodeOutlineApplication.js");
+  const generationApiFile = path.join(serpentRoot, "src", "renderer", "shuocanvas-legacy", "api", "storyGenerationApi.js");
   let workspace = fs.readFileSync(workspaceFile, "utf8");
   if (!workspace.includes("assets: Array.isArray(_0x4162fa?.assets)")) {
     workspace = workspace.replace("      project: _0x396255,\n      model:", "      project: _0x396255,\n      assets: Array.isArray(_0x4162fa?.assets) ? _0x4162fa.assets : [],\n      model:");
@@ -74,6 +75,15 @@ function patchStoryEpisodePlanningAssets() {
     application = application.replace("        project: _0x19f2f0.project,\n        constraints: _0x19f2f0.project.planning,", "        project: _0x19f2f0.project,\n        assets: _0x19f2f0.assets,\n        constraints: _0x19f2f0.project.planning,");
     fs.writeFileSync(applicationFile, application);
   }
+  let generationApi = fs.readFileSync(generationApiFile, "utf8");
+  const guards = [
+    '  if (!_0x40e1e5.length) {\n    throw new Error("请先提取并确认角色、场景与道具资产。");\n  }\n',
+    '  if (!_0x51edbc.length) {\n    throw new Error("请先提取并确认角色、场景与道具资产。");\n  }\n'
+  ];
+  for (const guard of guards) {
+    if (generationApi.includes(guard)) generationApi = generationApi.replace(guard, '  // 资产设定在分集大纲之后执行；空资产列表是合法的初始状态。\n');
+  }
+  fs.writeFileSync(generationApiFile, generationApi);
 }
 
 patchStoryEpisodePlanningAssets();
