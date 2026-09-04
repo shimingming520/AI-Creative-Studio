@@ -56,6 +56,17 @@ export function mediaBinaryWorkerEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env = { ...baseEnv };
+  // Electron UtilityProcess 不总是继承主进程通过 Module._initPaths
+  // 设置的 NODE_PATH。宿主集成(例如 YUH Studio)会通过
+  // SERPENT_NODE_MODULES 指向外置依赖目录，显式传递给 worker，确保
+  // better-sqlite3、sharp 等 external 依赖可以被解析。
+  const dependencyRoots = [env.NODE_PATH, env.SERPENT_NODE_MODULES]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .flatMap((value) => value.split(path.delimiter))
+    .filter((value, index, values) => values.indexOf(value) === index);
+  if (dependencyRoots.length > 0) {
+    env.NODE_PATH = dependencyRoots.join(path.delimiter);
+  }
   // A configured path is authoritative even when it does not exist. This is
   // intentional: launch-time test and development overrides must reach the
   // Worker unchanged so a missing component reports FFMPEG_REQUIRED instead

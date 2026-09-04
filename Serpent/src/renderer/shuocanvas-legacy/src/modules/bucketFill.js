@@ -1,0 +1,422 @@
+﻿function clampInt(_0xe972c6, _0x47ef4f, _0x2e84c6) {
+  const _0x1c3a1d = Number(_0xe972c6);
+  if (!Number.isFinite(_0x1c3a1d)) {
+    return _0x47ef4f;
+  }
+  return Math.max(_0x47ef4f, Math.min(_0x2e84c6, Math.floor(_0x1c3a1d)));
+}
+function createCanvas(_0x39e3d0, _0x3de5c0) {
+  const _0x3c96dc = document.createElement("canvas");
+  _0x3c96dc.width = Math.max(1, Math.floor(_0x39e3d0));
+  _0x3c96dc.height = Math.max(1, Math.floor(_0x3de5c0));
+  return _0x3c96dc;
+}
+function hasAnyMarked(_0x53d364) {
+  for (let _0x31192b = 0; _0x31192b < _0x53d364.length; _0x31192b += 1) {
+    if (_0x53d364[_0x31192b]) {
+      return true;
+    }
+  }
+  return false;
+}
+function extractMaskFromCanvas(_0x22a18b) {
+  const _0x59b4f0 = _0x22a18b.getContext("2d");
+  const {
+    width: _0x132a9a,
+    height: _0x136c23
+  } = _0x22a18b;
+  const _0xe77fb7 = _0x59b4f0.getImageData(0, 0, _0x132a9a, _0x136c23);
+  const _0x215115 = new Uint8Array(_0x132a9a * _0x136c23);
+  for (let _0x25710f = 0, _0x290956 = 0; _0x25710f < _0x215115.length; _0x25710f += 1, _0x290956 += 4) {
+    _0x215115[_0x25710f] = _0xe77fb7.data[_0x290956 + 3] > 10 ? 1 : 0;
+  }
+  return _0x215115;
+}
+function buildDiskOffsets(_0x5255a6) {
+  const _0xe0f483 = Math.max(0, Math.floor(_0x5255a6));
+  if (_0xe0f483 <= 0) {
+    return [[0, 0]];
+  }
+  const _0x228449 = [];
+  const _0x31b817 = _0xe0f483 * _0xe0f483;
+  for (let _0x56ecb4 = -_0xe0f483; _0x56ecb4 <= _0xe0f483; _0x56ecb4 += 1) {
+    for (let _0x174464 = -_0xe0f483; _0x174464 <= _0xe0f483; _0x174464 += 1) {
+      if (_0x174464 * _0x174464 + _0x56ecb4 * _0x56ecb4 <= _0x31b817) {
+        _0x228449.push([_0x174464, _0x56ecb4]);
+      }
+    }
+  }
+  return _0x228449;
+}
+function dilate(_0x298d41, _0x219851, _0xe7f2c1, _0x57f476) {
+  const _0x6e1f27 = new Uint8Array(_0x298d41.length);
+  for (let _0x459126 = 0; _0x459126 < _0xe7f2c1; _0x459126 += 1) {
+    const _0x346761 = _0x459126 * _0x219851;
+    for (let _0x58c8dc = 0; _0x58c8dc < _0x219851; _0x58c8dc += 1) {
+      if (_0x298d41[_0x346761 + _0x58c8dc]) {
+        for (let _0x4f7735 = 0; _0x4f7735 < _0x57f476.length; _0x4f7735 += 1) {
+          const [_0x37da1f, _0xd2bf9c] = _0x57f476[_0x4f7735];
+          const _0x53e0f9 = _0x58c8dc + _0x37da1f;
+          const _0x5f1a8b = _0x459126 + _0xd2bf9c;
+          if (_0x53e0f9 < 0 || _0x53e0f9 >= _0x219851 || _0x5f1a8b < 0 || _0x5f1a8b >= _0xe7f2c1) {
+            continue;
+          }
+          _0x6e1f27[_0x5f1a8b * _0x219851 + _0x53e0f9] = 1;
+        }
+      }
+    }
+  }
+  return _0x6e1f27;
+}
+function erode(_0x46b59c, _0x1a9146, _0x278af3, _0x18472b) {
+  const _0x17126d = new Uint8Array(_0x46b59c.length);
+  for (let _0x82df8d = 0; _0x82df8d < _0x278af3; _0x82df8d += 1) {
+    const _0x5b807b = _0x82df8d * _0x1a9146;
+    for (let _0x1d3131 = 0; _0x1d3131 < _0x1a9146; _0x1d3131 += 1) {
+      let _0x41a51b = true;
+      for (let _0x5f49ec = 0; _0x5f49ec < _0x18472b.length; _0x5f49ec += 1) {
+        const [_0x43f2f6, _0x45acb3] = _0x18472b[_0x5f49ec];
+        const _0x765c53 = _0x1d3131 + _0x43f2f6;
+        const _0x8ae59f = _0x82df8d + _0x45acb3;
+        if (_0x765c53 < 0 || _0x765c53 >= _0x1a9146 || _0x8ae59f < 0 || _0x8ae59f >= _0x278af3) {
+          _0x41a51b = false;
+          break;
+        }
+        if (!_0x46b59c[_0x8ae59f * _0x1a9146 + _0x765c53]) {
+          _0x41a51b = false;
+          break;
+        }
+      }
+      if (_0x41a51b) {
+        _0x17126d[_0x5b807b + _0x1d3131] = 1;
+      }
+    }
+  }
+  return _0x17126d;
+}
+function createRegionMaskCanvas(_0x5a2505, _0x2abc75, _0x35244c) {
+  const _0x4e8492 = createCanvas(_0x2abc75, _0x35244c);
+  const _0x294a67 = _0x4e8492.getContext("2d");
+  const _0x4a78fb = _0x294a67.createImageData(_0x2abc75, _0x35244c);
+  for (let _0x2416be = 0, _0x127705 = 0; _0x2416be < _0x5a2505.length; _0x2416be += 1, _0x127705 += 4) {
+    if (!_0x5a2505[_0x2416be]) {
+      continue;
+    }
+    _0x4a78fb.data[_0x127705] = 255;
+    _0x4a78fb.data[_0x127705 + 1] = 255;
+    _0x4a78fb.data[_0x127705 + 2] = 255;
+    _0x4a78fb.data[_0x127705 + 3] = 255;
+  }
+  _0x294a67.putImageData(_0x4a78fb, 0, 0);
+  return _0x4e8492;
+}
+const FILL_REGION_CACHE_LIMIT = 64;
+const commandSignatureCache = new WeakMap();
+function cacheNumber(_0x546e15) {
+  const _0x325c2c = Number(_0x546e15);
+  if (!Number.isFinite(_0x325c2c)) {
+    return 0;
+  }
+  return Math.round(_0x325c2c * 1000) / 1000;
+}
+function pointSignature(_0x1bfe50) {
+  return (Array.isArray(_0x1bfe50) ? _0x1bfe50 : []).map(_0x1333d8 => cacheNumber(_0x1333d8?.x) + "," + cacheNumber(_0x1333d8?.y)).join(";");
+}
+function commandBoundarySignature(_0x466bf0) {
+  if (!_0x466bf0 || typeof _0x466bf0 !== "object") {
+    return "";
+  }
+  const _0x2b2531 = commandSignatureCache.get(_0x466bf0);
+  if (_0x2b2531) {
+    return _0x2b2531;
+  }
+  const _0x40e0d6 = String(_0x466bf0.type || "");
+  let _0x54ee51 = _0x40e0d6;
+  if (_0x40e0d6 === "brush" || _0x40e0d6 === "eraser") {
+    _0x54ee51 = [_0x40e0d6, cacheNumber(_0x466bf0.sizeWorld), pointSignature(_0x466bf0.points)].join(":");
+  } else if (_0x40e0d6 === "rect") {
+    _0x54ee51 = [_0x40e0d6, cacheNumber(_0x466bf0.sizeWorld), cacheNumber(_0x466bf0.x1), cacheNumber(_0x466bf0.y1), cacheNumber(_0x466bf0.x2), cacheNumber(_0x466bf0.y2)].join(":");
+  }
+  commandSignatureCache.set(_0x466bf0, _0x54ee51);
+  return _0x54ee51;
+}
+export function buildFillRegionCacheKey({
+  width: _0x43be56,
+  height: _0x516b55,
+  zoom: _0x229196,
+  seedX: _0x3ce7e6,
+  seedY: _0x11eb5e,
+  fillCommand: _0x4ad690,
+  boundaryCommands: _0x1b8f7f,
+  extraKey = ""
+} = {}) {
+  const _0x3ba29c = (Array.isArray(_0x1b8f7f) ? _0x1b8f7f : []).map(commandBoundarySignature).join("|");
+  return [cacheNumber(_0x43be56), cacheNumber(_0x516b55), cacheNumber(_0x229196), cacheNumber(_0x3ce7e6), cacheNumber(_0x11eb5e), cacheNumber(_0x4ad690?.x ?? _0x4ad690?.startPoint?.x), cacheNumber(_0x4ad690?.y ?? _0x4ad690?.startPoint?.y), String(_0x4ad690?.mode || ""), String(_0x4ad690?.color || ""), String(extraKey || ""), _0x3ba29c].join("::");
+}
+function rememberFillRegion(_0x1aeed1, _0x1805dc, _0x52f5b5) {
+  if (!_0x1aeed1 || typeof _0x1aeed1.set !== "function") {
+    return;
+  }
+  if (_0x1aeed1.size >= FILL_REGION_CACHE_LIMIT) {
+    const _0x5a20de = _0x1aeed1.keys().next().value;
+    if (_0x5a20de !== undefined) {
+      _0x1aeed1.delete(_0x5a20de);
+    }
+  }
+  _0x1aeed1.set(_0x1805dc, _0x52f5b5);
+}
+export function getCachedSealedFillRegion({
+  cache = null,
+  width: _0x46aa5a,
+  height: _0xa2d6de,
+  zoom: _0x42da59,
+  fillCommand: _0x53df52,
+  boundaryCommands: _0x1a6d55,
+  seedX: _0x2e71b5,
+  seedY: _0x10ccf8,
+  pointToPixel: _0x5580cc,
+  getStrokeWidth: _0x161223,
+  extraKey = "",
+  buildBoundaryMaskFn = buildBinaryBoundaryMask,
+  floodFillRegionFn = floodFillRegion,
+  sealRegionToBoundaryFn = sealRegionToBoundary
+} = {}) {
+  const _0x1149bb = buildFillRegionCacheKey({
+    width: _0x46aa5a,
+    height: _0xa2d6de,
+    zoom: _0x42da59,
+    seedX: _0x2e71b5,
+    seedY: _0x10ccf8,
+    fillCommand: _0x53df52,
+    boundaryCommands: _0x1a6d55,
+    extraKey: extraKey
+  });
+  const _0x2bcb63 = cache?.get?.(_0x1149bb);
+  if (_0x2bcb63?.sealedRegionMask) {
+    return _0x2bcb63.sealedRegionMask;
+  }
+  const _0x422434 = buildBoundaryMaskFn({
+    width: _0x46aa5a,
+    height: _0xa2d6de,
+    commands: _0x1a6d55,
+    pointToPixel: _0x5580cc,
+    getStrokeWidth: _0x161223
+  });
+  const _0x420605 = floodFillRegionFn(_0x422434.mask, _0x422434.width, _0x422434.height, _0x2e71b5, _0x10ccf8);
+  const _0x1063cd = sealRegionToBoundaryFn(_0x420605, _0x422434.mask, _0x422434.width, _0x422434.height);
+  rememberFillRegion(cache, _0x1149bb, {
+    sealedRegionMask: _0x1063cd
+  });
+  return _0x1063cd;
+}
+export function buildBinaryBoundaryMask({
+  width: _0xc3028a,
+  height: _0x50a7dd,
+  commands: _0x550548,
+  pointToPixel: _0x5a069f,
+  getStrokeWidth: _0x3987c0
+}) {
+  const _0x4e3e01 = Math.max(1, Math.floor(_0xc3028a));
+  const _0x3463fc = Math.max(1, Math.floor(_0x50a7dd));
+  const _0x53394e = createCanvas(_0x4e3e01, _0x3463fc);
+  const _0x212e2e = _0x53394e.getContext("2d");
+  _0x212e2e.lineCap = "round";
+  _0x212e2e.lineJoin = "round";
+  (_0x550548 || []).forEach(_0xafec6d => {
+    if (!_0xafec6d) {
+      return;
+    }
+    if (_0xafec6d.type === "brush") {
+      const _0x239ef3 = Array.isArray(_0xafec6d.points) ? _0xafec6d.points : [];
+      if (!_0x239ef3.length) {
+        return;
+      }
+      _0x212e2e.save();
+      _0x212e2e.globalCompositeOperation = "source-over";
+      _0x212e2e.strokeStyle = "#fff";
+      _0x212e2e.lineWidth = Math.max(1, Number(_0x3987c0?.(_0xafec6d)) || 1);
+      _0x212e2e.beginPath();
+      for (let _0x3038ed = 0; _0x3038ed < _0x239ef3.length; _0x3038ed += 1) {
+        const _0x137c29 = _0x5a069f(_0x239ef3[_0x3038ed]);
+        if (_0x3038ed === 0) {
+          _0x212e2e.moveTo(_0x137c29.x, _0x137c29.y);
+        } else {
+          _0x212e2e.lineTo(_0x137c29.x, _0x137c29.y);
+        }
+      }
+      _0x212e2e.stroke();
+      _0x212e2e.restore();
+      return;
+    }
+    if (_0xafec6d.type === "rect") {
+      const _0xf364a4 = _0x5a069f({
+        x: _0xafec6d.x1,
+        y: _0xafec6d.y1
+      });
+      const _0x5d3320 = _0x5a069f({
+        x: _0xafec6d.x2,
+        y: _0xafec6d.y2
+      });
+      const _0x1f6687 = Math.min(_0xf364a4.x, _0x5d3320.x);
+      const _0x307dee = Math.min(_0xf364a4.y, _0x5d3320.y);
+      const _0x37adaf = Math.abs(_0x5d3320.x - _0xf364a4.x);
+      const _0x34429c = Math.abs(_0x5d3320.y - _0xf364a4.y);
+      _0x212e2e.save();
+      _0x212e2e.globalCompositeOperation = "source-over";
+      _0x212e2e.strokeStyle = "#fff";
+      _0x212e2e.lineWidth = Math.max(1, Number(_0x3987c0?.(_0xafec6d)) || 1);
+      _0x212e2e.strokeRect(_0x1f6687, _0x307dee, _0x37adaf, _0x34429c);
+      _0x212e2e.restore();
+      return;
+    }
+    if (_0xafec6d.type === "eraser") {
+      const _0x506915 = Array.isArray(_0xafec6d.points) ? _0xafec6d.points : [];
+      if (!_0x506915.length) {
+        return;
+      }
+      _0x212e2e.save();
+      _0x212e2e.globalCompositeOperation = "destination-out";
+      _0x212e2e.strokeStyle = "#000";
+      _0x212e2e.lineWidth = Math.max(1, Number(_0x3987c0?.(_0xafec6d)) || 1);
+      _0x212e2e.beginPath();
+      for (let _0x29bf45 = 0; _0x29bf45 < _0x506915.length; _0x29bf45 += 1) {
+        const _0xf75105 = _0x5a069f(_0x506915[_0x29bf45]);
+        if (_0x29bf45 === 0) {
+          _0x212e2e.moveTo(_0xf75105.x, _0xf75105.y);
+        } else {
+          _0x212e2e.lineTo(_0xf75105.x, _0xf75105.y);
+        }
+      }
+      _0x212e2e.stroke();
+      _0x212e2e.restore();
+    }
+  });
+  const _0x59f889 = extractMaskFromCanvas(_0x53394e);
+  return {
+    width: _0x4e3e01,
+    height: _0x3463fc,
+    mask: _0x59f889,
+    hasBoundary: hasAnyMarked(_0x59f889)
+  };
+}
+export function autoCloseBoundary(_0x3cbb60, _0x347306, _0x14e8bd, _0x454023) {
+  const _0x19e20b = Math.max(0, Math.min(64, Math.floor(_0x454023)));
+  if (!_0x3cbb60 || !_0x3cbb60.length || _0x19e20b <= 0) {
+    if (_0x3cbb60 instanceof Uint8Array) {
+      return _0x3cbb60.slice();
+    } else {
+      return new Uint8Array(0);
+    }
+  }
+  const _0x55906b = buildDiskOffsets(_0x19e20b);
+  const _0x3cc985 = dilate(_0x3cbb60, _0x347306, _0x14e8bd, _0x55906b);
+  return erode(_0x3cc985, _0x347306, _0x14e8bd, _0x55906b);
+}
+export function floodFillRegion(_0x16b80c, _0x2ebba8, _0x924a8e, _0x3844ec, _0x515562) {
+  const _0x347f30 = Math.max(1, Math.floor(_0x2ebba8));
+  const _0x8c4c8b = Math.max(1, Math.floor(_0x924a8e));
+  const _0x3d9f63 = _0x16b80c || new Uint8Array(_0x347f30 * _0x8c4c8b);
+  const _0x103aee = new Uint8Array(_0x347f30 * _0x8c4c8b);
+  const _0x306439 = clampInt(_0x3844ec, 0, _0x347f30 - 1);
+  const _0x67879 = clampInt(_0x515562, 0, _0x8c4c8b - 1);
+  if (!hasAnyMarked(_0x3d9f63)) {
+    _0x103aee.fill(1);
+    return _0x103aee;
+  }
+  if (_0x3d9f63[_0x67879 * _0x347f30 + _0x306439]) {
+    return _0x103aee;
+  }
+  const _0x64c087 = [{
+    x: _0x306439,
+    y: _0x67879
+  }];
+  while (_0x64c087.length > 0) {
+    const {
+      x: _0x2ea90b,
+      y: _0x24b9d6
+    } = _0x64c087.pop();
+    if (_0x2ea90b < 0 || _0x2ea90b >= _0x347f30 || _0x24b9d6 < 0 || _0x24b9d6 >= _0x8c4c8b) {
+      continue;
+    }
+    const _0x23fcb9 = _0x24b9d6 * _0x347f30 + _0x2ea90b;
+    if (_0x103aee[_0x23fcb9] || _0x3d9f63[_0x23fcb9]) {
+      continue;
+    }
+    _0x103aee[_0x23fcb9] = 1;
+    _0x64c087.push({
+      x: _0x2ea90b + 1,
+      y: _0x24b9d6
+    });
+    _0x64c087.push({
+      x: _0x2ea90b - 1,
+      y: _0x24b9d6
+    });
+    _0x64c087.push({
+      x: _0x2ea90b,
+      y: _0x24b9d6 + 1
+    });
+    _0x64c087.push({
+      x: _0x2ea90b,
+      y: _0x24b9d6 - 1
+    });
+  }
+  return _0x103aee;
+}
+export function sealRegionToBoundary(_0x1ee3c3, _0x5b9f68, _0x2828fd, _0x1a96cb, _0xc4e143 = 2) {
+  const _0x2b1f76 = Math.max(1, Math.floor(_0x2828fd));
+  const _0x1d4767 = Math.max(1, Math.floor(_0x1a96cb));
+  let _0x2d1051 = _0x1ee3c3 instanceof Uint8Array ? _0x1ee3c3.slice() : new Uint8Array(_0x2b1f76 * _0x1d4767);
+  if (!_0x5b9f68?.length || !_0x2d1051.length) {
+    return _0x2d1051;
+  }
+  const _0x35305b = Math.max(1, Math.min(4, Math.floor(_0xc4e143)));
+  const _0x3fef5c = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+  for (let _0x204303 = 0; _0x204303 < _0x35305b; _0x204303 += 1) {
+    const _0x23eb08 = _0x2d1051.slice();
+    for (let _0x2cec5b = 0; _0x2cec5b < _0x1d4767; _0x2cec5b += 1) {
+      const _0x8c7f6e = _0x2cec5b * _0x2b1f76;
+      for (let _0x4087cd = 0; _0x4087cd < _0x2b1f76; _0x4087cd += 1) {
+        const _0x2dda84 = _0x8c7f6e + _0x4087cd;
+        if (!_0x5b9f68[_0x2dda84] || _0x2d1051[_0x2dda84]) {
+          continue;
+        }
+        for (let _0xbc27ca = 0; _0xbc27ca < _0x3fef5c.length; _0xbc27ca += 1) {
+          const _0x476031 = _0x4087cd + _0x3fef5c[_0xbc27ca][0];
+          const _0x180757 = _0x2cec5b + _0x3fef5c[_0xbc27ca][1];
+          if (_0x476031 < 0 || _0x476031 >= _0x2b1f76 || _0x180757 < 0 || _0x180757 >= _0x1d4767) {
+            continue;
+          }
+          if (_0x2d1051[_0x180757 * _0x2b1f76 + _0x476031]) {
+            _0x23eb08[_0x2dda84] = 1;
+            break;
+          }
+        }
+      }
+    }
+    _0x2d1051 = _0x23eb08;
+  }
+  return _0x2d1051;
+}
+export function paintFilledRegion(_0x233de4, _0x5815f9, _0x3980d8, _0x20298b, {
+  fillStyle = "rgba(255,255,255,1)",
+  globalCompositeOperation = "source-over",
+  globalAlpha = 1
+} = {}) {
+  if (!_0x233de4 || !_0x5815f9?.length) {
+    return;
+  }
+  const _0x550048 = Math.max(1, Math.floor(_0x3980d8));
+  const _0x434200 = Math.max(1, Math.floor(_0x20298b));
+  const _0x50bd70 = createRegionMaskCanvas(_0x5815f9, _0x550048, _0x434200);
+  const _0x18f7f5 = createCanvas(_0x550048, _0x434200);
+  const _0xe42454 = _0x18f7f5.getContext("2d");
+  _0xe42454.fillStyle = fillStyle;
+  _0xe42454.fillRect(0, 0, _0x550048, _0x434200);
+  _0xe42454.globalCompositeOperation = "destination-in";
+  _0xe42454.drawImage(_0x50bd70, 0, 0, _0x550048, _0x434200);
+  _0x233de4.save();
+  _0x233de4.globalCompositeOperation = globalCompositeOperation;
+  _0x233de4.globalAlpha = globalAlpha;
+  _0x233de4.drawImage(_0x18f7f5, 0, 0, _0x550048, _0x434200);
+  _0x233de4.restore();
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-scaffold-exercises",
+  "title": "Scaffold Exercises（练习脚手架）",
+  "riskLevel": "safe",
+  "category": "misc",
+  "appliesWhen": [
+    "练习脚手架",
+    "exercise structure",
+    "problems solutions",
+    "教程结构",
+    "scaffold exercises"
+  ],
+  "requiredInputs": [
+    "练习主题"
+  ],
+  "missingInputQuestions": [
+    "练习的主题是什么？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": []
+}

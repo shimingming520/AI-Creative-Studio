@@ -40,6 +40,8 @@ export type RsImageGenerateRequest = {
   imageProtocol?: string;
   vectorArt?: boolean;
   references: { kind: "image"; path: string }[];
+  /** 工作台项目归档子目录(相对输出根)，如「替换工作室/<项目id>」。 */
+  projectSubdir?: string;
 };
 
 export type RsImageGenerateResult = {
@@ -61,6 +63,8 @@ export type RsVideoGenerateRequest = {
   ratio?: string;
   resolution?: string;
   references: { kind: "image" | "video" | "audio"; path: string }[];
+  /** 工作台项目归档子目录(相对输出根)，如「替换工作室/<项目id>」。 */
+  projectSubdir?: string;
 };
 
 export type RsVideoGenerateResult = {
@@ -78,10 +82,17 @@ export interface RsHostApi {
   onOpenView(callback: (viewId: string) => void): () => void;
   hide(): Promise<boolean>;
 
+  /** 在 Electron 沙箱渲染器中解析用户选择的 File 对应的本地绝对路径。 */
+  getPathForFile(file: unknown): string;
+
   // --- 项目持久化(YUH userData/serpent/replacement-studio) ---
   projectsLoad(): Promise<{ projects: RsProject[] }>;
   projectSave(project: RsProject): Promise<{ ok: boolean; error?: string }>;
   projectDelete(id: string): Promise<{ ok: boolean; error?: string }>;
+  /** 确保本项目资源目录存在(输出根/替换工作室/<项目id>)。 */
+  ensureWorkbenchProjectDir(
+    subdir: string,
+  ): Promise<{ ok: boolean; dir?: string; error?: string }>;
 
   // --- 文件 ---
   pickImages(multiple?: boolean): Promise<RsFilePick[]>;

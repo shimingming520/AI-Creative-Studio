@@ -1,0 +1,12 @@
+import WebSocket from "ws";
+const ts = await (await fetch("http://127.0.0.1:9223/json/list")).json();
+const t = ts.find((x) => x.type === "page" && x.url.includes("dev-src/renderer"));
+if (!t) throw new Error("no yuh target");
+const ws = new WebSocket(t.webSocketDebuggerUrl);
+await new Promise((resolve, reject) => { ws.on("open", resolve); ws.on("error", reject); });
+let id = 0; const pending = new Map();
+ws.on("message", (d) => { const m = JSON.parse(d); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } else if (m.method === 'Runtime.consoleAPICalled' || m.method === 'Runtime.exceptionThrown') console.log(JSON.stringify(m)); });
+ws.send(JSON.stringify({id: ++id, method:'Runtime.enable'}));
+const evalJs = (expression) => new Promise((resolve, reject) => { const i = ++id; pending.set(i, (m) => m.error ? reject(m.error) : resolve(m.result?.result?.value)); ws.send(JSON.stringify({ id: i, method: "Runtime.evaluate", params: { expression, awaitPromise: true, returnByValue: true } })); });
+console.log(await evalJs(`(() => { const b = document.querySelector('aside.left-rail nav .yuh-replacement-entry'); b?.click(); return Boolean(b); })()`));
+ws.close();

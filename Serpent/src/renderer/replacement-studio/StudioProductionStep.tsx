@@ -1026,6 +1026,8 @@ async function generateImageForShot(
     size: project.settings.imageSize !== "auto" ? project.settings.imageSize : undefined,
     quality: project.settings.imageQuality !== "auto" ? project.settings.imageQuality : undefined,
     references,
+    // 工作台项目归档：该项目的生成图写入输出根/替换工作室/<项目id>/。
+    projectSubdir: `替换工作室/${project.id}`,
   });
   const item: RsGeneratedItem = {
     id: rsId("img"),
@@ -1112,6 +1114,8 @@ async function generateVideoForShot(
     duration: Math.max(1, Math.min(30, project.settings.videoDuration || 5)),
     ratio: project.settings.videoRatio,
     references,
+    // 工作台项目归档：该项目的生成视频写入输出根/替换工作室/<项目id>/。
+    projectSubdir: `替换工作室/${project.id}`,
   });
   const item: RsGeneratedItem = {
     id: rsId("vid"),

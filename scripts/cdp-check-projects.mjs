@@ -1,0 +1,6 @@
+import WebSocket from 'ws';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const ts=await (await fetch('http://127.0.0.1:9223/json/list')).json(); const t=ts.find(x=>x.type==='page'&&/serpentHosted/.test(x.url));
+const ws=new WebSocket(t.webSocketDebuggerUrl,{maxPayload:128*1024*1024}); await new Promise((r,j)=>{ws.on('open',r);ws.on('error',j)}); let id=0,p=new Map(); ws.on('message',d=>{const m=JSON.parse(d);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id)}});
+const ev=async e=>{const r=await new Promise((r,j)=>{const i=++id;p.set(i,m=>m.error?j(m.error):r(m.result));ws.send(JSON.stringify({id:i,method:'Runtime.evaluate',params:{expression:e,awaitPromise:true,returnByValue:true}}))});return r?.result?.value};
+for(let i=0;i<15;i++){const out=await ev(`(async()=>{const p=await window.serpent.host.projectsLoad(); return (p.projects||[]).map(x=>({id:x.id,title:x.title,step:x.step,sources:(x.sources||[]).map(s=>({name:s.name,path:s.path,analysisStatus:s.analysisStatus,duration:s.durationSec})),shots:(x.shots||[]).map(s=>({id:s.id,keyframeRef:s.keyframeRef,clipRef:s.clipRef,start:s.start,end:s.end})),sourceAnalysis:x.sourceAnalysis,updatedAt:x.updatedAt}))})()`); console.log(JSON.stringify(out)); await sleep(2000)} ws.close();

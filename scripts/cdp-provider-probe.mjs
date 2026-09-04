@@ -1,0 +1,4 @@
+import WebSocket from "ws";
+const ts=await (await fetch("http://127.0.0.1:9223/json/list")).json(); const t=ts.find(x=>x.type==="page"&&/serpentHosted/.test(x.url));
+const ws=new WebSocket(t.webSocketDebuggerUrl); await new Promise((r,j)=>{ws.on("open",r);ws.on("error",j)}); let id=0; const p=new Map(); ws.on("message",d=>{const m=JSON.parse(d); if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id)}}); const ev=e=>new Promise((r,j)=>{const i=++id;p.set(i,m=>m.error?j(m.error):r(m.result?.result?.value));ws.send(JSON.stringify({id:i,method:"Runtime.evaluate",params:{expression:e,awaitPromise:true,returnByValue:true}}))});
+console.log(JSON.stringify(await ev(`(async()=>{const h=window.serpent?.host; const ps=await h?.listProviders?.(); const out=[]; for(const p of (ps||[])){let m=null; try{m=await h.listModels(p.id)}catch(e){m={error:String(e)}} out.push({p,m})} return out})()`),null,2)); ws.close();

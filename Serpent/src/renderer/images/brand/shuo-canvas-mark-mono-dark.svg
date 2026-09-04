@@ -1,0 +1,9 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">SHUO Canvas monochrome dark mark</title>
+  <desc id="desc">A dark S-shaped creative canvas mark with a cursor cut from its center.</desc>
+  <path
+    fill="#111216"
+    fill-rule="evenodd"
+    d="M96 12h62c40 0 68 23 68 57 0 22-11 39-33 53l-23 15c-7 5-7 13 1 18l22 14c22 14 32 34 25 53-8 23-31 34-63 34H83c-36 0-59-19-59-47 0-22 12-39 35-51l19-10c13-7 18-16 14-27-4-10-14-17-31-26C37 83 25 64 31 45 39 24 62 12 96 12Zm8 83c-8-1-12 4-9 13l23 77c3 10 10 10 14 1l10-26 25-6c9-2 11-8 4-14l-59-43c-3-1-5-2-8-2Z"
+  />
+</svg>

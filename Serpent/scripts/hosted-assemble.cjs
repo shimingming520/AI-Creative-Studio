@@ -4,7 +4,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const root = "F:/PyCharm_Project/AI-Creative-Studio/Serpent";
+// 允许 Serpent 作为 YUH-Studio 的内置子目录运行，不依赖固定绝对路径。
+const root = path.resolve(__dirname, "..");
 const src = path.join(root, ".vite", "build");
 const dst = path.join(root, ".vite", "hosted-build");
 

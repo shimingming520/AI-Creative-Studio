@@ -57,7 +57,8 @@ import { ConvertLinkedDialog } from "./ConvertLinkedDialog";
 import { LinkedRulesDialog } from "./LinkedRulesDialog";
 import { TagManagementWorkspace } from "./TagManagementWorkspace";
 import { ReplacementStudioWorkspace } from "./replacement-studio/ReplacementStudioWorkspace";
-import { StoryboardScriptWorkspace } from "./storyboard-script/StoryboardScriptWorkspace";
+import { LegacyStoryStudioWorkspace } from "./story-studio/LegacyStoryStudioWorkspace";
+import { STORY_PROJECTS_STORAGE_KEY } from "./story-studio/story-studio-data";
 import { MediaToolsWorkspace } from "./media-tools/MediaToolsWorkspace";
 import { VoiceStudioWorkspace } from "./voice-studio/VoiceStudioWorkspace";
 import { useFolderDeleteActions } from "./use-folder-delete-actions";
@@ -371,6 +372,40 @@ import {
   type GeneratedAssetKind,
 } from "../shared/generated-assets";
 import type { GenerationRecord } from "../shared/generation-record";
+/** 工作台资源分级(侧栏「工作台资源」): 一个工作室分级下按项目划分资源目录。 */
+type WorkbenchResourceStudio = {
+  studio: string;
+  slug: string;
+  projects: { id: string; title: string; dir: string }[];
+};
+/** 剧本工作室以「本地项目列表」(localStorage story-studio:projects:v1) 为数据源,渲染层据此生成分级。 */
+function storyboardWorkbenchGroup(
+  root: string,
+): WorkbenchResourceStudio {
+  const base = root.replace(/[\\/]+$/u, "");
+  const studio: WorkbenchResourceStudio = {
+    studio: "剧本工作室",
+    slug: "storyboard-script",
+    projects: [],
+  };
+  try {
+    const raw = localStorage.getItem(STORY_PROJECTS_STORAGE_KEY);
+    if (!raw) return studio;
+    const parsed = JSON.parse(raw) as Array<{ id?: string; title?: string }>;
+    const list = Array.isArray(parsed) ? parsed : [];
+    const projects = list
+      .filter((p) => Boolean(p && p.id))
+      .map((p) => {
+        const id = String(p.id);
+        const title = String((p.title || "").trim() || "剧本项目");
+        return { id, title, dir: `${base}/剧本工作室/${id}` };
+      });
+    if (projects.length > 0) studio.projects = projects;
+  } catch {
+    // 保持空分级即可。
+  }
+  return studio;
+}
 import { normalizeFormatFilterTokens } from "../shared/text-media";
 import type {
   SerpentLibraryApi,
@@ -968,6 +1003,10 @@ function AppInner() {
   /** Bumped after asset mutations so the per-kind counts stay fresh. */
   const [generatedCountsRefreshKey, setGeneratedCountsRefreshKey] =
     useState(0);
+  /** 工作台资源分级树(工作室 → 项目 → 目录), 来自 YUH host; 供侧栏「工作台资源」。 */
+  const [workbenchResourceTree, setWorkbenchResourceTree] = useState<
+    WorkbenchResourceStudio[] | null
+  >(null);
   /** 生成记录: provenance of the currently selected single asset. */
   const [generationRecord, setGenerationRecord] = useState<
     GenerationRecord | null
@@ -1198,6 +1237,13 @@ function AppInner() {
       setActiveStudioView(viewId && viewId !== "serpent" ? viewId : null);
     });
   }, []);
+  // 当前工作台正在编辑的项目(工作室上报),用于「资源管理」侧栏自动定位到该项目。
+  const [activeWorkbenchProject, setActiveWorkbenchProject] = useState<{
+    studio: string;
+    slug: string;
+    projectId: string;
+    title: string;
+  } | null>(null);
   const [trashedAssets, setTrashedAssets] = useState<AssetSummary[]>([]);
   const [trashedAssetCount, setTrashedAssetCount] = useState(0);
 
@@ -3289,6 +3335,118 @@ function AppInner() {
       cancelled = true;
     };
   }, [api, linkedFolders, library?.libraryId]);
+
+  // 工作台资源树: 从 YUH host 拉取(工作室 → 项目 → 目录)。只在 hosted 模式
+  // 可用; 失败保持 null(侧栏隐藏该分级)。追加渲染层本地的「剧本工作室」分级。
+  useEffect(() => {
+    const host = (
+      window as unknown as {
+        serpent?: { host?: { workbenchTree?: () => Promise<WorkbenchResourceStudio[]> } };
+      }
+    ).serpent?.host;
+    if (!host || typeof host.workbenchTree !== "function") return;
+    let cancelled = false;
+    void host
+      .workbenchTree()
+      .then((tree) => {
+        if (cancelled) return;
+        const mains = Array.isArray(tree) ? tree : [];
+        const storyboard = generatedAssetsRoot
+          ? storyboardWorkbenchGroup(generatedAssetsRoot)
+          : null;
+        setWorkbenchResourceTree(
+          storyboard ? [...mains, storyboard] : mains,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setWorkbenchResourceTree(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [library?.libraryId, generatedAssetsRoot, linkedFolders, activeStudioView]);
+
+  // 把工作台资源树映射到当前资源库的链接文件夹(每个项目目录 → 可浏览的 folderId)。
+  // 项目目录下的资源经「ComfyUI 输出」链接文件夹递归收录为虚拟子文件夹。
+  const workbenchResourceGroups = useMemo(() => {
+    if (!workbenchResourceTree) return null;
+    const resolve = (value: string) => {
+      const normalized = value
+        .replace(/[\\/]+$/u, "")
+        .replace(/\\/g, "/")
+        .toLowerCase();
+      return normalized;
+    };
+    const byRoot = new Map<string, string>();
+    for (const folder of linkedFolders) {
+      if (folder.status !== "available" || !folder.absoluteRootPath) continue;
+      byRoot.set(resolve(folder.absoluteRootPath), folder.folderId);
+    }
+    // 工作台项目目录通常位于「ComfyUI 输出」链接根目录下，例如：
+    //   <输出根>/替换工作室/<项目 id>
+    // 这类目录在资源库中是链接文件夹的虚拟子目录，不能只用根路径做
+    // 精确匹配；否则项目行会拿到 null folderId，点击后自然没有任何反应。
+    const resolveProjectFolderId = (projectDir: string): string | null => {
+      const normalizedProjectDir = resolve(projectDir);
+      const exact = byRoot.get(normalizedProjectDir);
+      if (exact) return exact;
+
+      // 优先选择最长的匹配根，避免多个嵌套链接目录时落到较外层目录。
+      let best: { folderId: string; relativePath: string; rootLength: number } | null = null;
+      for (const folder of linkedFolders) {
+        if (folder.status !== "available" || !folder.absoluteRootPath) continue;
+        const rootPath = folder.absoluteRootPath
+          .replace(/[\\/]+/gu, "/")
+          .replace(/\/+$/u, "");
+        const root = resolve(rootPath);
+        const isInside = normalizedProjectDir.startsWith(`${root}/`);
+        if (!isInside) continue;
+        const normalizedRelative = projectDir
+          .replace(/[\\/]+/gu, "/")
+          .replace(/\/+$/u, "")
+          .slice(rootPath.length + 1)
+          .replace(/^\/+|\/+$/gu, "");
+        if (!normalizedRelative) continue;
+        if (!best || root.length > best.rootLength) {
+          best = {
+            folderId: folder.folderId,
+            relativePath: normalizedRelative,
+            rootLength: root.length,
+          };
+        }
+      }
+      return best ? linkedRevealFolderId(best.folderId, best.relativePath) : null;
+    };
+    return workbenchResourceTree.map((studioGroup) => ({
+      studio: studioGroup.studio,
+      slug: studioGroup.slug,
+      projects: studioGroup.projects.map((project) => ({
+        id: project.id,
+        title: project.title,
+        dir: project.dir,
+        folderId: resolveProjectFolderId(project.dir),
+      })),
+    }));
+  }, [linkedFolders, workbenchResourceTree]);
+
+  // 工作台作用域: 工作室关闭(切回资源库)时, 若记录到正在编辑的工作台项目,
+  // 且其资源目录已作为链接文件夹出现, 自动把资源管理定位到该项目(只显示该项目资源)。
+  const lastStudioViewRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = lastStudioViewRef.current;
+    lastStudioViewRef.current = activeStudioView;
+    if (prev && !activeStudioView && activeWorkbenchProject) {
+      const group = workbenchResourceGroups?.find(
+        (g) => g.slug === activeWorkbenchProject.slug,
+      );
+      const project = group?.projects.find(
+        (p) => p.id === activeWorkbenchProject.projectId,
+      );
+      if (project?.folderId) {
+        void chooseFolder(project.folderId);
+      }
+    }
+  }, [activeStudioView, activeWorkbenchProject, workbenchResourceGroups]);
 
   // 生成资产 is app-level: when the output root is configured but the current
   // library has no matching linked folder yet (new library, or the host
@@ -10523,6 +10681,11 @@ function AppInner() {
         onChooseGeneratedAssets={(kind) => void enterGeneratedAssets(kind)}
         excludedLinkedFolderRootId={generatedAssetsFolder?.folderId ?? null}
         onExportGenerationRecords={() => void handleExportGenerationRecords()}
+        workbenchResourceGroups={workbenchResourceGroups}
+        onChooseWorkbenchProject={(project) => {
+          if (project.folderId) void chooseFolder(project.folderId);
+          else setNotice(`${project.title} 暂无可显示的资源`);
+        }}
         allAssetCount={allAssetCount}
         rootAssetCount={rootAssetCount}
         trashedAssetCount={trashedAssetCount}
@@ -13077,10 +13240,16 @@ function AppInner() {
       )}
     </main>
     {activeStudioView === "replacement-studio" && (
-      <ReplacementStudioWorkspace onExit={() => setActiveStudioView(null)} />
+      <ReplacementStudioWorkspace
+        onExit={() => setActiveStudioView(null)}
+        onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
+      />
     )}
     {activeStudioView === "storyboard-script" && (
-      <StoryboardScriptWorkspace onExit={() => setActiveStudioView(null)} />
+      <LegacyStoryStudioWorkspace
+        onExit={() => setActiveStudioView(null)}
+        onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
+      />
     )}
     {activeStudioView === "media-tools" && (
       <MediaToolsWorkspace onExit={() => setActiveStudioView(null)} />

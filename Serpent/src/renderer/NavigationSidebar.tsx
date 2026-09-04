@@ -550,6 +550,13 @@ function Section({
 // NavigationSidebar — props
 // ---------------------------------------------------------------------------
 
+/** 工作台资源分级: 一个工作室下有若干项目, 每个项目映射到一个链接文件夹。 */
+export type WorkbenchResourceGroup = {
+  studio: string;
+  slug: string;
+  projects: { id: string; title: string; dir: string; folderId: string | null }[];
+};
+
 export interface NavigationSidebarProps {
   // --- Library connection ---
   library: RendererLibrarySummary | null;
@@ -586,6 +593,15 @@ export interface NavigationSidebarProps {
   excludedLinkedFolderRootId?: string | null;
   /** Export every host-side generation record (JSON/CSV via Main). */
   onExportGenerationRecords?: () => void;
+
+  // --- 工作台资源 (studio → project → folder tiers) ---
+  /** 工作室分级: 每个工作室下有若干项目, 每个项目映射到一个可浏览的链接文件夹。 */
+  workbenchResourceGroups?: WorkbenchResourceGroup[] | null;
+  /** 点击工作台项目行: 导航到该项目自己的资源目录(只显示该项目资源)。 */
+  onChooseWorkbenchProject?: (project: {
+    folderId: string | null;
+    title: string;
+  }) => void;
 
   // --- Data ---
   allAssetCount: number;
@@ -742,6 +758,8 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     onChooseGeneratedAssets,
     excludedLinkedFolderRootId = null,
     onExportGenerationRecords,
+    workbenchResourceGroups = null,
+    onChooseWorkbenchProject,
     allAssetCount,
     rootAssetCount,
     trashedAssetCount,
@@ -1535,6 +1553,34 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
   }
 
   // --------------------------------------------------------------------
+  // 工作台工作室分级: 替换工作室 / 剧本工作室 作为一级目录(与「生成资产」同级)。
+  // 每个工作室下面列出项目; 点击项目行进入该项目自己的资源目录(只显示该项目
+  // 资源)。目录来自输出根/<工作室>/<项目id>/, 经「ComfyUI 输出」链接文件夹
+  // 递归收录为虚拟子文件夹。
+  // --------------------------------------------------------------------
+  function renderWorkbenchStudioRows(
+    group: WorkbenchResourceGroup,
+  ): ReactNode {
+    if (group.projects.length === 0) {
+      return <p className="nav-empty">暂无项目</p>;
+    }
+    return group.projects.map((project) => (
+      <NavRow
+        active={Boolean(project.folderId && assetScope === project.folderId)}
+        icon="folder"
+        key={project.id}
+        label={project.title}
+        title={
+          project.folderId
+            ? project.title
+            : `${project.title}（尚未生成资源）`
+        }
+        onClick={() => onChooseWorkbenchProject?.(project)}
+      />
+    ));
+  }
+
+  // --------------------------------------------------------------------
   // 生成资产 — fixed sidebar section
   // Backed by the linked folder whose root equals the generation output path
   // (the host keeps that link in place; see ensureComfyuiOutputLink). Rows are
@@ -1708,6 +1754,13 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
             onClick={() => onChoosePluginSidebarView?.(view.id)}
           />
         ))}
+        {library && workbenchResourceGroups
+          ? workbenchResourceGroups.map((group) => (
+              <Section key={group.slug} title={group.studio}>
+                {renderWorkbenchStudioRows(group)}
+              </Section>
+            ))
+          : null}
         {generatedAssetsRootConfigured ? (
           <Section
             title={t("nav.generatedAssets")}

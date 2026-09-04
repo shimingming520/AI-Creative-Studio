@@ -1,0 +1,163 @@
+.original-replacement-host {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  overflow: hidden;
+  background: var(--bg, #111);
+}
+.original-replacement-host > #v2-wrap,
+.original-replacement-mount {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.original-replacement-host .person-replacement-workspace {
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * ShuoCanvas 原始工作室会与宿主页面共享 document 级按钮规则。YUH 的
+ * 全局 disabled/主题规则会把首页操作区整体压得过淡，尤其是“加入视频”、
+ * “设置”和“跳过处理”。仅在原始工作室作用域内恢复原始对比度，避免影响
+ * YUH 其他页面的按钮语义和布局。
+ */
+.original-replacement-host #v2-wrap .story-home-model-bar .story-secondary-button,
+.original-replacement-host #v2-wrap .story-home-model-bar .story-primary-button,
+.original-replacement-host #v2-wrap .story-upload-actions .story-secondary-button,
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-next-button,
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-primary-button,
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-secondary-button {
+  opacity: 1;
+}
+
+/* 处理中的首页仍保留操作区的层级提示，但不再让按钮文字和边框被父级
+ * 透明度/模糊重复削弱；按钮本身的 disabled 状态负责表达不可操作。 */
+.original-replacement-host #v2-wrap .story-home-composer.is-generating > .story-home-model-bar {
+  opacity: 1;
+  filter: none;
+}
+
+.original-replacement-host #v2-wrap .story-home-model-bar .story-secondary-button:not(:disabled),
+.original-replacement-host #v2-wrap .story-upload-actions .story-secondary-button:not(:disabled),
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-secondary-button:not(:disabled) {
+  border-color: var(--story-line);
+  color: var(--story-text);
+}
+
+.original-replacement-host #v2-wrap .story-home-model-bar .story-primary-button:not(:disabled),
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-primary-button:not(:disabled),
+.original-replacement-host #v2-wrap .person-replacement-workspace .story-next-button:not(:disabled) {
+  color: var(--story-action-text);
+}
+
+/* 首页“开始处理”使用白色对比背景，文字必须沿用对比色（深色），
+ * 不能被上面的通用主按钮规则覆盖成白字。 */
+.original-replacement-host #v2-wrap .story-home-model-bar .story-home-generate:not(:disabled) {
+  color: var(--story-contrast-action-text);
+  -webkit-text-fill-color: var(--story-contrast-action-text);
+}
+
+/*
+ * 素材设定页沿用 ShuoCanvas 的五步导航。宿主页面的全局按钮规则会在
+ * 较窄的 CSS 视口中重新分配 grid 行，导致第 5 步换行，并让高亮伪元素
+ * 纵向撑满两行，最终看起来像一个异常大的白色圆块。这里把导航固定为
+ * 单行五列，同时保留各步骤按钮的紧凑胶囊尺寸。
+ */
+.original-replacement-host #v2-wrap .person-replacement-story-toolbar {
+  grid-template-columns: minmax(150px, 1fr) minmax(0, auto) minmax(150px, 1fr);
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-template-rows: minmax(38px, auto);
+  grid-auto-flow: column;
+  width: min(100%, 760px);
+  min-width: 0;
+  min-height: 38px;
+  height: 38px;
+  align-items: stretch;
+  overflow: visible;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps .story-step {
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps .story-step.is-active {
+  color: var(--story-contrast-action-text) !important;
+  -webkit-text-fill-color: var(--story-contrast-action-text) !important;
+}
+
+/* story-workspace.css 还定义了三步导航的同名伪元素；由于它与人物替换
+ * 规则同等优先级，最终会把高亮宽度算成 33.333%。明确恢复五步比例，
+ * 并按当前步骤移动到对应列。 */
+.original-replacement-host #v2-wrap .person-replacement-story-steps::before {
+  width: calc(20% - var(--story-step-indicator-gap-offset)) !important;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps[data-active-step="2"]::before {
+  transform: translateX(calc(100% + var(--story-step-gap))) !important;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps[data-active-step="3"]::before {
+  transform: translateX(calc(200% + var(--story-step-gap) + var(--story-step-gap))) !important;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps[data-active-step="4"]::before {
+  transform: translateX(calc(300% + var(--story-step-gap) + var(--story-step-gap) + var(--story-step-gap))) !important;
+}
+
+.original-replacement-host #v2-wrap .person-replacement-story-steps[data-active-step="5"]::before {
+  transform: translateX(calc(400% + var(--story-step-gap) + var(--story-step-gap) + var(--story-step-gap) + var(--story-step-gap))) !important;
+}
+
+/* 素材设定页底部的“进入图像替换”是 story-next-button，而不是首页
+ * story-home-generate。白色对比背景必须配深色文字，且需要同步覆盖
+ * Chromium 的 text-fill，避免按钮再次出现白底白字的空白状态。 */
+.original-replacement-host #v2-wrap .person-replacement-step-footer .story-next-button:not(:disabled),
+.original-replacement-host #v2-wrap .person-replacement-step-footer .story-next-button:not(:disabled) > *,
+.original-replacement-host #v2-wrap .person-replacement-footer .person-replacement-primary-button:not(:disabled),
+.original-replacement-host #v2-wrap .person-replacement-footer .person-replacement-primary-button:not(:disabled) > * {
+  color: var(--story-contrast-action-text) !important;
+  -webkit-text-fill-color: var(--story-contrast-action-text) !important;
+}
+
+@media (max-width: 860px) {
+  .original-replacement-host #v2-wrap .person-replacement-story-steps {
+    width: min(100%, 760px);
+  }
+}
+
+@media (max-width: 620px) {
+  .original-replacement-host #v2-wrap .person-replacement-story-steps,
+  .original-replacement-host #v2-wrap .person-replacement-story-steps .story-step {
+    min-height: 32px;
+    height: 32px;
+  }
+
+  .original-replacement-host #v2-wrap .person-replacement-story-steps {
+    grid-template-rows: minmax(32px, auto);
+  }
+
+  .original-replacement-host #v2-wrap .person-replacement-story-steps::before {
+    width: calc(20% - var(--story-step-indicator-gap-offset)) !important;
+  }
+
+  .original-replacement-host #v2-wrap .person-replacement-story-steps .story-step {
+    padding-inline: 5px;
+    font-size: var(--font-11);
+  }
+}
+
+/* 禁用态仍然要明显不可用，但不能退化成几乎不可读的灰字。 */
+.original-replacement-host #v2-wrap .story-home-model-bar button:disabled,
+.original-replacement-host #v2-wrap .person-replacement-workspace button:disabled {
+  opacity: 0.62;
+}

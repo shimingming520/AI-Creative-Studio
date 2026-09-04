@@ -1,0 +1,62 @@
+﻿.person-replacement-workspace > .aigen-image-model-menu-portal {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 12020;
+  max-height: min(70dvh, 640px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+}
+.person-replacement-workspace
+  > .aigen-image-model-menu-portal
+  .node-model-submenu {
+  max-height: min(60dvh, 440px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.person-replacement-workspace
+  > .aigen-image-model-menu-portal
+  .floating-menu-item,
+.person-replacement-workspace
+  > .aigen-ui-schema-owner-proxy.aigen-image-menu-context
+  > .aigen-ui-schema-popup-portal
+  .floating-menu-item {
+  font-size: 15px;
+}
+.person-replacement-workspace > .aigen-ui-schema-owner-proxy {
+  display: contents;
+}
+.person-replacement-workspace
+  > .aigen-ui-schema-owner-proxy.aigen-image-menu-context {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+}
+.person-replacement-workspace
+  > .aigen-ui-schema-owner-proxy
+  > .aigen-ui-schema-popup-portal {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 12030;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-menu);
+  border-color: var(--stroke-08);
+  box-shadow: var(--shadow-popover);
+  animation: none;
+  transform: none;
+}

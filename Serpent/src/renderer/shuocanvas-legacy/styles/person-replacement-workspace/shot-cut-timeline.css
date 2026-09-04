@@ -1,0 +1,182 @@
+﻿.person-replacement-shot-cut-ruler-tick.is-frame::after {
+  height: 8px;
+  background: var(--white-30);
+}
+.person-replacement-shot-cut-track.media-clip-track {
+  width: var(--media-clip-track-content-width);
+  min-width: var(--media-clip-track-content-width);
+  height: 58px;
+  min-height: 58px;
+  flex: 0 0 58px;
+  overflow: visible;
+}
+.person-replacement-shot-cut-scroll.media-clip-timeline-scroll,
+.person-replacement-shot-cut-shell.media-clip-compact,
+.person-replacement-shot-cut-timeline.media-clip-compact-timeline {
+  min-height: 140px;
+}
+.person-replacement-shot-cut-timeline .media-clip-timeline-lane {
+  height: 104px;
+  flex-basis: 104px;
+}
+.person-replacement-shot-cut-timeline .media-clip-timeline-tracks {
+  align-self: flex-start;
+  height: 58px;
+  min-height: 58px;
+}
+.person-replacement-shot-cut-annotations {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  overflow: visible;
+  pointer-events: none;
+}
+.person-replacement-shot-cut-segment-label {
+  position: absolute;
+  top: 98px;
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  color: var(--person-replacement-text-muted);
+  font-size: var(--font-11);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.person-replacement-shot-cut-keyframe-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed var(--person-replacement-accent);
+  transform: translateX(-1px);
+}
+.person-replacement-shot-cut-keyframe-marker > span {
+  position: absolute;
+  top: 116px;
+  left: 0;
+  padding: 1px var(--space-4);
+  border-radius: var(--radius-4);
+  background: color-mix(
+    in srgb,
+    var(--person-replacement-surface-subtle) 92%,
+    transparent
+  );
+  color: var(--person-replacement-accent);
+  font-size: var(--font-11);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 16px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.person-replacement-shot-cut-keyframe-marker.is-start > span {
+  transform: none;
+}
+.person-replacement-shot-cut-keyframe-marker.is-end > span {
+  transform: translateX(-100%);
+}
+.person-replacement-shot-cut-segment {
+  min-width: 0;
+  color: var(--media-control-time-text);
+  cursor: var(--link-cursor);
+  touch-action: none;
+}
+.person-replacement-shot-cut-segment.is-source-start {
+  box-shadow:
+    inset 3px 0 0 var(--person-replacement-accent),
+    var(--shadow-toolbar);
+}
+.person-replacement-shot-cut-segment.is-marquee-hit,
+.person-replacement-shot-cut-segment.is-merge-selected,
+.person-replacement-shot-cut-segment.is-previewing,
+.person-replacement-shot-cut-segment:focus-visible,
+.person-replacement-shot-cut-segment:hover {
+  z-index: 20;
+}
+.person-replacement-shot-cut-segment.is-previewing::after,
+.person-replacement-shot-cut-segment:focus-visible::before,
+.person-replacement-shot-cut-segment:hover::before {
+  opacity: 1;
+}
+.person-replacement-shot-cut-segment.is-marquee-hit::before,
+.person-replacement-shot-cut-segment.is-merge-selected::before {
+  border-color: var(--person-replacement-accent);
+  opacity: 1;
+}
+.person-replacement-shot-cut-segment.is-previewing
+  .person-replacement-shot-cut-selection,
+.person-replacement-shot-cut-segment:focus-visible
+  .person-replacement-shot-cut-selection,
+.person-replacement-shot-cut-segment:hover
+  .person-replacement-shot-cut-selection {
+  opacity: 1;
+}
+.person-replacement-shot-cut-segment.is-marquee-hit
+  .person-replacement-shot-cut-selection,
+.person-replacement-shot-cut-segment.is-merge-selected
+  .person-replacement-shot-cut-selection {
+  opacity: 1;
+}
+.person-replacement-shot-cut-primary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  min-width: 0;
+  min-height: 28px;
+}
+.person-replacement-shot-cut-primary-actions
+  .person-replacement-shot-cut-action {
+  flex: 0 0 28px;
+}
+.person-replacement-shot-cut-merge {
+  border-color: var(--person-replacement-accent-border);
+  background: var(--person-replacement-accent-soft);
+  color: var(--person-replacement-accent);
+}
+.person-replacement-workspace.is-shot-cut-marquee-selecting,
+.person-replacement-workspace.is-shot-cut-marquee-selecting
+  [data-person-replacement-shot-cut-selectable] {
+  cursor: var(--precision-cursor, crosshair);
+  user-select: none;
+}
+.person-replacement-shot-cut-boundary:focus-visible,
+.person-replacement-shot-cut-segment:focus-visible {
+  outline: 0;
+}
+.person-replacement-shot-cut-boundary.is-dragging .media-clip-trim-visual,
+.person-replacement-shot-cut-segment.is-previewing
+  .person-replacement-shot-cut-boundary
+  .media-clip-trim-visual,
+.person-replacement-shot-cut-segment:focus-visible
+  .person-replacement-shot-cut-boundary
+  .media-clip-trim-visual,
+.person-replacement-shot-cut-segment:hover
+  .person-replacement-shot-cut-boundary
+  .media-clip-trim-visual {
+  opacity: 1;
+}
+.person-replacement-shot-cut-boundary {
+  z-index: 30;
+  touch-action: none;
+}
+.person-replacement-shot-cut-cursors.media-clip-timeline-cursors {
+  overflow: visible;
+}
+.person-replacement-shot-cut-playhead.media-clip-playhead {
+  transition: left 80ms linear;
+  will-change: left;
+}
+.person-replacement-cut-resizing,
+.person-replacement-cut-resizing * {
+  cursor: col-resize;
+  user-select: none;
+}

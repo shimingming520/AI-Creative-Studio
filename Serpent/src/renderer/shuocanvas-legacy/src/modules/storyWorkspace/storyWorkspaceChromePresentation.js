@@ -1,0 +1,35 @@
+﻿import { renderStoryGenerationSpinner } from "./storyAsyncButtonPresentation.js";
+function escapeHtml(_0x8521b8) {
+  return String(_0x8521b8 ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function renderStepNavigation(_0x3bb8c6 = {}) {
+  return "<nav class=\"story-step-navigation\" data-active-step=\"" + escapeHtml(_0x3bb8c6.activeStep) + "\" aria-label=\"剧本制作步骤\">\n    " + (_0x3bb8c6.items || []).map(_0x1de603 => "<button type=\"button\" class=\"story-step " + (_0x1de603.active ? "is-active" : "") + "\" data-story-step=\"" + _0x1de603.id + "\" aria-current=\"" + (_0x1de603.active ? "step" : "false") + "\" aria-keyshortcuts=\"" + _0x1de603.id + "\" " + (_0x1de603.disabled ? "disabled" : "") + ">\n        <span>" + _0x1de603.id + "</span>" + escapeHtml(_0x1de603.label) + "\n      </button>").join("") + "\n  </nav>";
+}
+function renderEpisodeSwitcher(_0x592514 = {}) {
+  const _0x1b452c = _0x592514.options || [];
+  const _0x9c0258 = _0x1b452c.length > 0;
+  return "<div class=\"story-episode-switcher " + (_0x9c0258 ? "has-options" : "") + "\">\n    <button type=\"button\" class=\"story-episode-toolbar-current story-menu-trigger\" data-story-episode-state=\"" + (_0x592514.isCurrentPage ? "active" : "inactive") + "\" " + (_0x592514.isCurrentPage ? "aria-current=\"page\"" : "data-story-open-episode=\"" + escapeHtml(_0x592514.currentEpisodeId) + "\"") + " " + (_0x9c0258 ? "aria-haspopup=\"menu\"" : "") + ">\n      <span class=\"story-episode-toolbar-current-label\">" + escapeHtml(_0x592514.currentEpisodeName) + "</span>\n      " + (_0x9c0258 ? "<span class=\"story-episode-switcher-chevron\" aria-hidden=\"true\"></span>" : "") + "\n    </button>\n    " + (_0x9c0258 ? "<div class=\"story-episode-switcher-menu\" role=\"menu\" aria-label=\"切换已生成分集\">\n      " + _0x1b452c.map(_0x34b6ed => "<button type=\"button\" class=\"story-episode-switcher-option\" data-story-open-episode=\"" + escapeHtml(_0x34b6ed.id) + "\" role=\"menuitem\">\n          <span>" + escapeHtml(_0x34b6ed.name) + "</span>\n          <small>已生成 " + _0x34b6ed.clipCount + " 个分镜片段</small>\n        </button>").join("") + "\n    </div>" : "") + "\n  </div>";
+}
+function renderEpisodeToolbarSide(_0xf8aaf = {}) {
+  const _0x372338 = _0xf8aaf.canvasSyncPending === true;
+  const _0x1f068b = _0x372338 ? "disabled aria-disabled=\"true\"" : "";
+  return "<div class=\"story-episode-toolbar-side\">\n      " + renderEpisodeSwitcher(_0xf8aaf.episodeSwitcher) + "\n      <div class=\"story-episode-toolbar-actions\">\n        <div class=\"story-canvas-sync-menu-wrap\">\n          <button type=\"button\" class=\"story-workbench-action-button story-canvas-sync-trigger story-menu-trigger" + (_0x372338 ? " is-pending" : "") + "\" data-story-action=\"toggle-canvas-sync-menu\" " + _0x1f068b + " aria-busy=\"" + (_0x372338 ? "true" : "false") + "\" aria-haspopup=\"menu\" aria-expanded=\"false\">\n            " + (_0x372338 ? "<span class=\"story-canvas-sync-spinner\" aria-hidden=\"true\"></span>" : "") + "\n            <span>" + (_0x372338 ? "加入中…" : "加入画布") + "</span><span class=\"story-canvas-sync-chevron\" aria-hidden=\"true\"></span>\n          </button>\n          <div class=\"story-canvas-sync-menu\" role=\"menu\" aria-hidden=\"true\">\n            <button type=\"button\" class=\"story-canvas-sync-option\" data-story-action=\"sync-episode-to-canvas\" role=\"menuitem\" " + _0x1f068b + ">\n              <strong>同步本集到画布</strong><small>只更新当前分集的分镜视频</small>\n            </button>\n            <button type=\"button\" class=\"story-canvas-sync-option\" data-story-action=\"sync-project-to-canvas\" role=\"menuitem\" " + _0x1f068b + ">\n              <strong>同步整个项目到画布</strong><small>加入项目设定、素材与当前集视频</small>\n            </button>\n          </div>\n        </div>\n        <div class=\"story-canvas-sync-menu-wrap story-clip-export-menu-wrap\">\n          <button type=\"button\" class=\"story-workbench-action-button story-canvas-sync-trigger story-menu-trigger\" data-story-action=\"toggle-canvas-sync-menu\" aria-haspopup=\"menu\" aria-expanded=\"false\">\n            <span>导出</span><span class=\"story-canvas-sync-chevron\" aria-hidden=\"true\"></span>\n          </button>\n          <div class=\"story-canvas-sync-menu story-clip-export-menu\" role=\"menu\" aria-label=\"导出视频片段\" aria-hidden=\"true\">\n            <button type=\"button\" class=\"story-canvas-sync-option\" data-story-action=\"export-current-clip\" role=\"menuitem\">\n              <strong>导出当前片段</strong><small>导出当前选中的视频版本</small>\n            </button>\n            <button type=\"button\" class=\"story-canvas-sync-option\" data-story-action=\"export-episode-clips\" role=\"menuitem\">\n              <strong>导出本集全部片段</strong><small>自动跳过还没有视频的片段</small>\n            </button>\n          </div>\n        </div>\n      </div>\n    </div>";
+}
+export function createStoryWorkspaceChromePresentation() {
+  function _0x79a88d(_0x14793d = {}) {
+    if (_0x14793d.kind === "episode") {
+      return "<div class=\"story-project-toolbar story-project-toolbar--episode\">\n      <button type=\"button\" class=\"story-toolbar-back\" data-story-action=\"back-home\"><span class=\"story-toolbar-back-icon\" aria-hidden=\"true\"></span><span>剧本项目</span></button>\n      " + renderStepNavigation(_0x14793d.steps) + "\n      " + renderEpisodeToolbarSide(_0x14793d) + "\n    </div>";
+    }
+    return "<div class=\"story-project-toolbar\">\n    <button type=\"button\" class=\"story-toolbar-back\" data-story-action=\"back-home\"><span class=\"story-toolbar-back-icon\" aria-hidden=\"true\"></span><span>剧本项目</span></button>\n    " + renderStepNavigation(_0x14793d.steps) + "\n    " + (_0x14793d.episodeSwitcher ? "<div class=\"story-episode-toolbar-side\">" + renderEpisodeSwitcher(_0x14793d.episodeSwitcher) + "</div>" : "<span aria-hidden=\"true\"></span>") + "\n  </div>";
+  }
+  function _0x5e3682(_0x1353c7 = {}) {
+    const _0x53907c = "\n      " + (_0x1353c7.showPrevious ? "<button type=\"button\" class=\"story-secondary-button\" data-story-action=\"previous-step\">上一步</button>" : "") + "\n      <button type=\"button\" class=\"story-next-button\" data-story-action=\"" + escapeHtml(_0x1353c7.nextAction) + "\" " + (_0x1353c7.busy ? "disabled" : "") + " aria-busy=\"" + Boolean(_0x1353c7.busy) + "\">" + (_0x1353c7.busy ? renderStoryGenerationSpinner({
+      button: true
+    }) : "") + "<span>" + escapeHtml(_0x1353c7.nextLabel) + "</span>" + (_0x1353c7.busy ? "" : "<span class=\"story-next-arrow\" aria-hidden=\"true\">→</span>") + "</button>";
+    return "<footer class=\"story-page-footer\">\n    <div>\n      <strong>" + escapeHtml(_0x1353c7.title) + "</strong>\n      <small>" + escapeHtml(_0x1353c7.hint) + "</small>\n    </div>\n    <div class=\"story-page-footer-actions\">\n      " + (_0x1353c7.actionsMarkup || _0x53907c) + "\n    </div>\n  </footer>";
+  }
+  return Object.freeze({
+    renderFooter: _0x5e3682,
+    renderToolbar: _0x79a88d
+  });
+}

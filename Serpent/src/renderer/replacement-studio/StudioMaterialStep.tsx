@@ -41,6 +41,7 @@ export function StudioMaterialStep({
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [selectedShotPreview, setSelectedShotPreview] = useState<string | null>(null);
+  const [selectedAssetPreview, setSelectedAssetPreview] = useState<string | null>(null);
 
   const source = project.sources[0] ?? null;
   const [focusedShotId, setFocusedShotId] = useState<string | null>(null);
@@ -73,6 +74,25 @@ export function StudioMaterialStep({
       cancelled = true;
     };
   }, [selectedShot?.keyframePath]);
+
+  const selectedCharacter = selectedCard?.startsWith("character:")
+    ? project.characters.find((item) => item.id === selectedCard.slice("character:".length)) ?? null
+    : null;
+  const selectedScene = selectedCard?.startsWith("scene:")
+    ? project.scenes.find((item) => item.id === selectedCard.slice("scene:".length)) ?? null
+    : null;
+  useEffect(() => {
+    const path = selectedCharacter?.appearances[0]?.imagePath ?? selectedScene?.imagePath ?? null;
+    if (!path) {
+      setSelectedAssetPreview(null);
+      return;
+    }
+    let cancelled = false;
+    void ensureHostApi().then((host) => host.readImage(path).catch(() => null)).then((url) => {
+      if (!cancelled) setSelectedAssetPreview(url);
+    });
+    return () => { cancelled = true; };
+  }, [selectedCharacter?.id, selectedCharacter?.appearances, selectedScene?.id, selectedScene?.imagePath]);
 
   const appendLog = useCallback((line: string) => {
     setLog((cur) => [...cur.slice(-40), line]);
@@ -285,6 +305,23 @@ export function StudioMaterialStep({
       };
       await onChange((p) => ({ ...p, characters: [...p.characters, character] }));
     });
+  const uploadCharacter = () =>
+    run("上传人物", async () => {
+      const host = await ensureHostApi();
+      const picked = await host.pickImages(true);
+      const file = picked?.[0];
+      if (!file) return;
+      const character: RsTargetCharacter = {
+        id: rsId("char"),
+        name: file.name.replace(/\.[^.]+$/, "") || `角色${project.characters.length + 1}`,
+        role: "",
+        description: "",
+        appearances: [{ id: rsId("appa"), name: "基础形象", imagePath: file.path, prompt: "" }],
+        boundLetters: [],
+      };
+      await onChange((p) => ({ ...p, characters: [...p.characters, character] }));
+      setSelectedCard(`character:${character.id}`);
+    });
   const addAppearance = (characterId: string) =>
     run("添加形象", async () => {
       const host = await ensureHostApi();
@@ -359,7 +396,23 @@ export function StudioMaterialStep({
         onRemoveCard={removeCard}
       />
       <div className="rs-center">
-        <section className="rs-panel">
+        <section className="rs-panel rs-material-upload">
+          <div>
+            <h3>上传人物基础形象</h3>
+            <p className="rs-muted">上传的第一张图片作为基础形象，后续生成会新增形象。</p>
+          </div>
+          <div className="rs-row rs-material-upload-actions">
+            <button className="rs-btn" disabled={busy} onClick={() => void uploadCharacter()}>上传人物</button>
+            <button className="rs-btn primary" disabled={busy || project.characters.length === 0} onClick={() => {
+              const character = project.characters.find((item) => item.id === selectedCard?.split(":")[1]) ?? project.characters[0];
+              if (character) void addAppearance(character.id);
+            }}>框选多选</button>
+            <button className="rs-btn ghost" disabled={busy || !source} onClick={() => void analyze()}>
+              {source?.analysisStatus === "running" ? "分析中…" : "分析素材"}
+            </button>
+          </div>
+        </section>
+        <section className="rs-panel rs-material-source-panel">
           <h3>
             源素材
             <span className="hint">智能裁剪:按场景变化自动切分镜头（检测 N 人的话需先在下方配置检测）</span>
@@ -398,7 +451,7 @@ export function StudioMaterialStep({
           )}
         </section>
 
-        <section className="rs-panel">
+        <section className="rs-panel rs-material-settings-panel">
           <h3>
             智能裁剪设置
             <span className="hint">镜头很碎时会自动合并过短片段</span>
@@ -420,7 +473,7 @@ export function StudioMaterialStep({
           </div>
         </section>
 
-        <section className="rs-panel">
+        <section className="rs-panel rs-material-detect-panel">
           <h3>检测设置</h3>
           <div className="rs-row">
             <div className="rs-field" style={{ flex: "1 1 200px" }}>
@@ -452,7 +505,7 @@ export function StudioMaterialStep({
           </div>
         </section>
 
-        <section className="rs-panel">
+        <section className="rs-panel rs-material-analysis-panel">
           <h3>
             分析
             <span className="hint">当前状态: {project.shots.length} 镜头 · {detectedShots} 已检测 · {boundCount} 已绑定</span>
@@ -500,11 +553,11 @@ export function StudioMaterialStep({
       <aside className="rs-detail">
         <section className="rs-panel">
           <h3>
-            镜头预览
-            <span className="hint">{selectedShot ? selectedShot.label : "未分析"}</span>
+            预览
+            <span className="hint">{selectedShot ? selectedShot.label : "当前项目"}</span>
           </h3>
-          {selectedShotPreview ? (
-            <img src={selectedShotPreview} alt="镜头" style={{ width: "100%", borderRadius: 8 }} />
+          {selectedAssetPreview || selectedShotPreview ? (
+            <img src={selectedAssetPreview || selectedShotPreview || ""} alt="素材预览" style={{ width: "100%", maxHeight: 360, objectFit: "contain", borderRadius: 8 }} />
           ) : (
             <div className="rs-empty">完成分析后显示镜头关键帧</div>
           )}
@@ -514,6 +567,18 @@ export function StudioMaterialStep({
               <span className="rs-tag">{selectedShot.people.length} 人</span>
             </div>
           )}
+        </section>
+        <section className="rs-panel rs-material-generation-panel">
+          <div className="rs-material-reference-strip">
+            <span className="rs-muted">提示词</span>
+            <span className="rs-tag">GPT image 2</span>
+            <span className="rs-tag">标准版</span>
+            <span className="rs-tag">自适应 · 1K</span>
+          </div>
+          <textarea rows={4} placeholder="描述替换效果，输入 @ 引用左侧素材图" />
+          <div className="rs-row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
+            <button className="rs-btn primary" disabled>生成替换图</button>
+          </div>
         </section>
         <section className="rs-panel">
           <h3>

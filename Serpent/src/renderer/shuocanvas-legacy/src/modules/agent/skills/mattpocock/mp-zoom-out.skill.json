@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-zoom-out",
+  "title": "Zoom Out（宏观视角）",
+  "riskLevel": "safe",
+  "category": "engineering",
+  "appliesWhen": [
+    "宏观视角",
+    "整体了解",
+    "架构概览",
+    "zoom out",
+    "高层设计",
+    "模块关系"
+  ],
+  "requiredInputs": [
+    "要了解的代码区域"
+  ],
+  "missingInputQuestions": [
+    "你想了解哪个模块或代码区域？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": [
+    "graph.getCanvasSummary",
+    "viewport.fitAll"
+  ]
+}

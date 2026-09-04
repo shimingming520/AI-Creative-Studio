@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "task-management",
+  "title": "Task management",
+  "riskLevel": "confirm",
+  "appliesWhen": [
+    "user wants to focus a generation task result on the canvas",
+    "user asks to retry a failed generation task or continue from a task result"
+  ],
+  "requiredInputs": ["task id or target canvas node id"],
+  "missingInputQuestions": [
+    "Which task or result node should be focused?",
+    "Which generation node should be retried?"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {
+    "padding": 80,
+    "durationMs": 800
+  },
+  "commands": [
+    "task.focusResult",
+    "task.retry",
+    "generation.getStatus",
+    "generation.cancel",
+    "viewport.focusNodes"
+  ],
+  "category": "canvas"
+}

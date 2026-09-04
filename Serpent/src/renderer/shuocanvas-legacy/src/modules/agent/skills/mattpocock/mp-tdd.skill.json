@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-tdd",
+  "title": "TDD（测试驱动开发）",
+  "riskLevel": "confirm",
+  "category": "engineering",
+  "appliesWhen": [
+    "TDD",
+    "测试驱动开发",
+    "red-green-refactor",
+    "test-first",
+    "vertical slices",
+    "集成测试"
+  ],
+  "requiredInputs": [
+    "要开发的功能或 bug"
+  ],
+  "missingInputQuestions": [
+    "你想开发什么功能或修复什么 bug？"
+  ],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": [
+    "graph.getCanvasSummary",
+    "node.getSummary"
+  ]
+}

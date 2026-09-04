@@ -1,0 +1,204 @@
+/* 语音工作室 — 工作区样式 */
+.vs-workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: var(--surface-0, #17191f);
+  color: var(--text-1, #e8e8ea);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(18, 20, 26, 0.85);
+  flex: 0 0 auto;
+}
+.vs-title h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.vs-subtitle {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.vs-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.vs-source {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+}
+.vs-source-name {
+  font-size: 12px;
+  opacity: 0.8;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vs-body {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+.vs-panel {
+  flex: 0 0 auto;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vs-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+.vs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.vs-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.vs-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+.vs-segment {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.vs-segment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vs-segment-time {
+  font-size: 11px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.vs-text {
+  min-height: 40px;
+  resize: vertical;
+  font-size: 12px;
+}
+.vs-design {
+  font-size: 12px;
+}
+.vs-segment-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vs-segment-foot audio {
+  height: 26px;
+}
+
+.vs-timeline {
+  position: relative;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  display: block;
+}
+.vs-timeline-slot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.85;
+}
+.vs-timeline-original {
+  background: rgba(120, 150, 255, 0.35);
+}
+.vs-timeline-silence {
+  background: rgba(128, 128, 128, 0.15);
+}
+.vs-timeline-dub {
+  background: rgba(255, 150, 120, 0.5);
+}
+
+.vs-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vs-result audio {
+  height: 26px;
+}
+
+.vs-btn {
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vs-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+.vs-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.vs-btn-primary {
+  background: rgba(110, 150, 255, 0.22);
+  border-color: rgba(110, 150, 255, 0.6);
+}
+.vs-btn-quiet {
+  opacity: 0.75;
+}
+.vs-hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
+.vs-busy {
+  color: #9db8ff;
+  font-size: 12px;
+}
+.vs-error {
+  color: #ff9a9a;
+  font-size: 12px;
+}
+.vs-ok {
+  color: #9fe6b0;
+  font-size: 12px;
+}

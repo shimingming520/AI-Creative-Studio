@@ -1,0 +1,9 @@
+﻿.person-replacement-prompt-reference-inputs
+  .ref-thumb-wrap.highlight
+  .ref-thumb-media,
+.person-replacement-prompt-reference-inputs
+  .ref-thumb-wrap:hover
+  .ref-thumb-media {
+  transform: none;
+  box-shadow: none;
+}

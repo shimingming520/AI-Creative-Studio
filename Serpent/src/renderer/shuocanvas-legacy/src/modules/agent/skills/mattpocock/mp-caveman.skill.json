@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-caveman",
+  "title": "Caveman（极简沟通）",
+  "riskLevel": "safe",
+  "category": "productivity",
+  "appliesWhen": [
+    "极简回复",
+    "节省 token",
+    "caveman mode",
+    "精简沟通",
+    "高效回复",
+    "不要废话"
+  ],
+  "requiredInputs": [],
+  "missingInputQuestions": [],
+  "recommendedModelKind": "",
+  "defaultParams": {
+    "persistent": true
+  },
+  "commands": []
+}

@@ -1,0 +1,50 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 256" role="img" aria-labelledby="title desc">
+  <title id="title">SHUO Canvas logo for light backgrounds</title>
+  <desc id="desc">The SHUO Canvas spectrum mark with a dark custom vector wordmark.</desc>
+  <defs>
+    <linearGradient id="shuo-spectrum" x1="50" y1="35" x2="210" y2="225" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0D50FF"/>
+      <stop offset=".26" stop-color="#4F50F3"/>
+      <stop offset=".48" stop-color="#A84DCE"/>
+      <stop offset=".66" stop-color="#F65391"/>
+      <stop offset=".82" stop-color="#FF7657"/>
+      <stop offset="1" stop-color="#FDB73F"/>
+    </linearGradient>
+    <radialGradient id="shuo-coral" cx="30" cy="224" r="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF646A" stop-opacity=".98"/>
+      <stop offset=".38" stop-color="#FF646A" stop-opacity=".68"/>
+      <stop offset=".78" stop-color="#FF646A" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="shuo-amber" cx="204" cy="222" r="166" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDB53F" stop-opacity=".74"/>
+      <stop offset=".42" stop-color="#FDB53F" stop-opacity=".46"/>
+      <stop offset=".86" stop-color="#FDB53F" stop-opacity="0"/>
+    </radialGradient>
+    <path
+      id="shuo-shape"
+      fill-rule="evenodd"
+      transform="matrix(1.141414 0 0 1.142857 -16.959592 -20)"
+      d="M84 28H190C205 28 215 38 215 52C215 67 205 78 188 94C181 101 181 109 187 116C191 120 198 123 203 127C218 138 226 157 226 178C226 208 205 231 179 231H51C38 231 28 221 28 207C28 193 36 182 48 176C55 173 64 174 68 172C76 169 79 163 77 157C76 149 70 144 61 137L45 124C36 117 31 103 30 89C29 72 34 58 43 49C53 37 67 29 84 28ZM115 105C117 104 119 105 122 107L169 143C175 147 175 151 169 153L143 156L129 176C125 182 120 179 119 172L112 112C111 108 112 106 115 105Z"
+    />
+    <symbol id="shuo-mark" viewBox="0 0 256 256">
+      <use href="#shuo-shape" fill="url(#shuo-spectrum)"/>
+      <use href="#shuo-shape" fill="url(#shuo-coral)"/>
+      <use href="#shuo-shape" fill="url(#shuo-amber)"/>
+    </symbol>
+  </defs>
+  <use href="#shuo-mark" x="8" y="8" width="240" height="240"/>
+  <g fill="none" stroke="#111216" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M379 92c-14-16-42-18-59-7-17 10-14 27 8 34l31 9c23 7 29 25 17 39-15 18-49 17-69-2"/>
+    <path d="M419 53v125m0-49c0-29 18-46 43-46 26 0 39 18 39 47v48"/>
+    <path d="M540 91v49c0 25 15 40 40 40s40-15 40-40V91"/>
+    <path d="M702 84c-32 0-51 19-51 48s19 48 51 48 51-19 51-48-19-48-51-48Z"/>
+  </g>
+  <g fill="none" stroke="#4B505A" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M352 211c-10 0-16 5-16 14s6 14 16 14c6 0 10-2 14-6"/>
+    <path d="m390 239 11-28 11 28m-17-11h12"/>
+    <path d="M451 239v-28l21 28v-28"/>
+    <path d="m514 211 12 28 12-28"/>
+    <path d="m580 239 11-28 11 28m-17-11h12"/>
+    <path d="M650 215c-4-4-9-5-14-4-6 1-9 5-8 9 1 3 4 5 9 6l8 2c6 2 8 6 6 10-3 5-13 4-18 0"/>
+  </g>
+</svg>

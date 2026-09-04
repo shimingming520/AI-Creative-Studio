@@ -2947,8 +2947,23 @@ const plugins: SerpentPluginManagerApi = Object.freeze({
 // YUH 原生 IPC);独立运行 Serpent 时这些通道不存在,isHosted() 返回 false。
 // ---------------------------------------------------------------------------
 const SERPENT_HOST_OPEN_VIEW_CHANNEL = 'serpent-host:open-view';
+// Hosted 视图启动时主进程可能比 React 更早发送 open-view。旧实现直接把
+// IPC 事件交给尚未注册的监听器，导致首次点击“替换工作室”停留在资源库。
+// 在 preload 层缓存最近一次请求，React 注册后立即补发，保证慢启动也不会丢事件。
+const openViewCallbacks = new Set<(viewId: string) => void>();
+let pendingOpenView: string | null = null;
+ipcRenderer.on(SERPENT_HOST_OPEN_VIEW_CHANNEL, (_event, viewId: unknown) => {
+  const normalized = String(viewId || '');
+  if (openViewCallbacks.size === 0) {
+    pendingOpenView = normalized;
+    return;
+  }
+  for (const callback of openViewCallbacks) callback(normalized);
+});
 const HOST_INVOKE_CHANNELS = new Set([
   'serpent:hide',
+  'workbench:tree',
+  'workbench:ensure-project-dir',
   'rs:projects-load',
   'rs:project-save',
   'rs:project-delete',
@@ -2981,6 +2996,8 @@ const HOST_INVOKE_CHANNELS = new Set([
   'vs:design-voice',
   'vs:translate',
   'vs:concat-audio',
+  // 成片流水线(替换工作室视频 × 语音工作室音频 → 成片)
+  'pp:mux-video',
   'utilities:pick-images',
   'utilities:pick-video',
   'utilities:pick-files',
@@ -3015,10 +3032,23 @@ const hostInvoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
 
 const host = Object.freeze({
   isHosted: () => hostedRenderer,
+  getPathForFile: (file: unknown): string => {
+    try {
+      return webUtils.getPathForFile(file as File) || '';
+    } catch {
+      return '';
+    }
+  },
   onOpenView: (callback: (viewId: string) => void): (() => void) => {
-    const listener = (_event: unknown, viewId: unknown) => callback(String(viewId || ''));
-    ipcRenderer.on(SERPENT_HOST_OPEN_VIEW_CHANNEL, listener);
-    return () => ipcRenderer.removeListener(SERPENT_HOST_OPEN_VIEW_CHANNEL, listener);
+    openViewCallbacks.add(callback);
+    if (pendingOpenView !== null) {
+      const queued = pendingOpenView;
+      pendingOpenView = null;
+      queueMicrotask(() => {
+        if (openViewCallbacks.has(callback)) callback(queued);
+      });
+    }
+    return () => openViewCallbacks.delete(callback);
   },
   hide: () => hostInvoke('serpent:hide'),
   projectsLoad: () => hostInvoke('rs:projects-load'),
@@ -3041,7 +3071,33 @@ const host = Object.freeze({
   generateImage: (request: unknown) => hostInvoke('cloud-images:generate', request),
   generateVideo: (request: unknown) => hostInvoke('cloud-videos:generate', request),
   listProviders: () => hostInvoke('providers:list'),
-  listModels: (providerId: string) => hostInvoke('providers:models', providerId),
+  // YUH 主进程发现模型时返回的是模型对象数组，早期 hosted 页面却把它当作
+  // `{ models: string[] }`，造成中转站已配置但下拉框始终为空。统一在桥接层
+  // 归一化，所有工作室都只接收模型 ID 列表和可读错误信息。
+  listModels: async (providerId: string) => {
+    try {
+      const result = await hostInvoke('providers:models', providerId) as unknown;
+      const items = Array.isArray(result)
+        ? result
+        : Array.isArray((result as { models?: unknown[] } | null)?.models)
+          ? (result as { models: unknown[] }).models
+          : [];
+      return {
+        models: items
+          .map((item) => typeof item === 'string' ? item : (item as { id?: unknown; name?: unknown } | null)?.id ?? (item as { name?: unknown } | null)?.name)
+          .map((item) => String(item || '').trim())
+          .filter(Boolean),
+        error: typeof (result as { error?: unknown } | null)?.error === 'string'
+          ? (result as { error: string }).error
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        models: [],
+        error: error instanceof Error ? error.message : String(error || '模型列表加载失败'),
+      };
+    }
+  },
   workspace: () => hostInvoke('workspace:get'),
   showItem: (path: string) => hostInvoke('shell:show-item', path),
   openPath: (path: string) => hostInvoke('shell:open-path', path),
@@ -3066,6 +3122,12 @@ const host = Object.freeze({
   // --- 剧本工作室 → 替换工作室 联动 ---
   openReplacementStudio: () => hostInvoke('sw:open-replacement-studio'),
 
+  // --- 工作台资源树(侧栏「工作台资源」分级:工作室 → 项目 → 目录) ---
+  workbenchTree: () => hostInvoke('workbench:tree'),
+  // 确保某个工作台项目资源目录存在(输出根/<项目子目录>)。
+  ensureWorkbenchProjectDir: (subdir: string) =>
+    hostInvoke('workbench:ensure-project-dir', subdir),
+
   // --- 媒体工具(宫格/拼图/白板导出,复用 YUH utilities 能力) ---
   mt: Object.freeze({
     splitGrid: (request: unknown) => hostInvoke('mt:split-grid', request),
@@ -3084,6 +3146,11 @@ const host = Object.freeze({
     designVoice: (request: unknown) => hostInvoke('vs:design-voice', request),
     translate: (request: unknown) => hostInvoke('vs:translate', request),
     concatAudio: (request: unknown) => hostInvoke('vs:concat-audio', request),
+  }),
+
+  // --- 成片流水线(替换工作室视频 × 语音工作室音频 → 成片) ---
+  pp: Object.freeze({
+    muxVideo: (request: unknown) => hostInvoke('pp:mux-video', request),
   }),
 });
 

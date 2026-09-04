@@ -1,5 +1,6 @@
 # ============================================================
-# AI-Creative-Studio monorepo 根 .gitignore
+# AI-Creative-Studio / YUH-Studio 根 .gitignore
+# 仓库根已重设为 YUH-Studio：本文件位于仓库根，规则均为根相对路径。
 # 原则：源码/配置/资产跟踪；一切可再生的构建产物与第三方依赖不跟踪。
 # ============================================================
 
@@ -12,6 +13,18 @@ Thumbs.db
 .idea/
 .vscode/
 *.iml
+
+# ---- 工具 / 临时档（Playwright、CDP 等自动化日志与缓存） ----
+.playwright-cli/
+.tmp-cdp-*/
+
+# ---- 临时工作标记 / 验证截图（分析会话的临时产物） ----
+.s[0-9]*.txt
+.snap*.txt
+.after*.txt
+.uploaded*.txt
+.projectsnap*.txt
+.verify*.png
 
 # ---- Node ----
 node_modules/
@@ -26,7 +39,7 @@ yarn-error.log*
 !.env.example
 
 # ============================================================
-# Serpent（.vite 构建产物、平台二进制资源、构建目录）
+# Serpent 模块（内置；.vite 构建产物、平台二进制资源、构建目录）
 # ============================================================
 Serpent/.vite/
 Serpent/dist/
@@ -40,28 +53,16 @@ Serpent/.beads/
 Serpent/resources/ffmpeg/
 Serpent/resources/oiio/
 Serpent/resources/media-binaries/
+build/serpent/
 
 # ============================================================
-# ShuoCanvas（构建产物、反分析工具）
+# YUH-Studio 本体（打包输出、内置引擎/模型、反编译目录；现为仓库根）
 # ============================================================
-ShuoCanvas/.tools/
-ShuoCanvas/.tmp-*/
-ShuoCanvas/dist/
-ShuoCanvas/runtime/
-ShuoCanvas/app/node_modules/
-ShuoCanvas/app/.electron-runtime/
-ShuoCanvas/app/.electron-shell/
-ShuoCanvas/app/.electron-dev-app/
-
-# ============================================================
-# YUH-Studio（构建产物、打包输出、内置引擎/模型、反编译目录）
-# ============================================================
-YUH-Studio/node_modules/
-YUH-Studio/release/
-YUH-Studio/bundled-resources/
-YUH-Studio/app-full/
-YUH-Studio/app-readable/
-YUH-Studio/ui-build/
-YUH-Studio/engine-source/node_modules/
-YUH-Studio/engine-source/out/
-YUH-Studio/engine-source/yunhui_tools/__pycache__/
+release/
+bundled-resources/
+app-full/
+app-readable/
+ui-build/
+engine-source/node_modules/
+engine-source/out/
+engine-source/yunhui_tools/__pycache__/

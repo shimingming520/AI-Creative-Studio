@@ -1,0 +1,773 @@
+/*
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createRsProject,
+  normalizeRsProject,
+  projectProgress,
+  projectStepGate,
+  rsId,
+  type RsProject,
+  type RsScene,
+  type RsStepKey,
+} from "../../shared/replacement-studio";
+import { ensureHostApi, errorText, type RsHostApi } from "./host";
+import { StudioMaterialStep } from "./StudioMaterialStep";
+import { StudioImageStep, StudioVideoStep } from "./StudioProductionStep";
+import { StudioVoiceStep, StudioComposeStep } from "./StudioVoiceCompose";
+import "./replacement-studio.css";
+import { OriginalReplacementWorkspace } from "./OriginalReplacementWorkspace";
+// 直接引用原始工作室入口，确保迁移层与 ShuoCanvas 源码保持同源。
+import { createReplacementStudioApplication as createOriginalReplacementStudioApplication } from "./OriginalReplacementBridge";
+void createOriginalReplacementStudioApplication;
+
+export const RS_STEPS: { key: RsStepKey; label: string }[] = [
+  { key: "material", label: "素材设定" },
+  { key: "image", label: "图像替换" },
+  { key: "video", label: "视频替换" },
+  { key: "voice", label: "声音克隆" },
+  { key: "compose", label: "合成视频" },
+];
+
+const STEP_NEXT_LABELS: Record<RsStepKey, string> = {
+  material: "进入图像替换",
+  image: "进入视频替换",
+  video: "进入声音克隆",
+  voice: "进入合成视频",
+  compose: "完成",
+};
+
+const STEP_GUIDANCE: Record<RsStepKey, { title: string; detail: string }> = {
+  material: {
+    title: "请先导入素材并完成镜头分析",
+    detail: "选择一条视频(或图片):智能裁剪自动切分镜头 → 逐镜头检测人物 → 跨镜头聚类身份,然后绑定目标角色。",
+  },
+  image: {
+    title: "请绑定替换人物/场景",
+    detail: "在右侧为每个身份选择目标角色与形象,确认替换范围后逐镜头(或批量)生成替换图。",
+  },
+  video: {
+    title: "逐镜头生成替换视频",
+    detail: "选择视频输入模式(替换首帧/人物参考图),提示词与模型确认后生成;镜头可批量生成。",
+  },
+  voice: {
+    title: "声音克隆(可选)",
+    detail: "为每个镜头填写台词(可自动转写),选择目标音色参考,生成克隆配音;不生成则合成时保留原声。",
+  },
+  compose: {
+    title: "合成视频",
+    detail: "把所有镜头片段按顺序拼接,并混合克隆音轨,导出最终替换视频。",
+  },
+};
+
+function ReactReplacementStudioWorkspace({
+  onExit,
+  onActiveWorkbenchProject,
+}: {
+  onExit: () => void;
+  onActiveWorkbenchProject?: (project: {
+    studio: string;
+    slug: string;
+    projectId: string;
+    title: string;
+  }) => void;
+}) {
+  const [projects, setProjects] = useState<RsProject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<RsProject | null>(null);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [selectedShotId, setSelectedShotId] = useState<string | null>(null);
+  const [canvasMenuOpen, setCanvasMenuOpen] = useState(false);
+  const hostRef = useRef<RsHostApi | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    ensureHostApi()
+      .then((host) => {
+        hostRef.current = host;
+        return host.projectsLoad();
+      })
+      .then((result) => {
+        if (cancelled) return;
+        const list = (Array.isArray(result?.projects) ? result.projects : [])
+          .map(normalizeRsProject)
+          .filter((p): p is RsProject => p !== null);
+        setProjects([...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(errorText(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const current = useMemo(
+    () => projects.find((p) => p.id === currentId) ?? null,
+    [projects, currentId],
+  );
+
+  // 上报当前正在编辑的项目, 供「资源管理」侧栏自动定位到该项目资源。
+  useEffect(() => {
+    if (current) {
+      onActiveWorkbenchProject?.({
+        studio: "替换工作室",
+        slug: "replacement-studio",
+        projectId: current.id,
+        title: current.title,
+      });
+    }
+  }, [current, onActiveWorkbenchProject]);
+
+  // 打开替换工作台时,确保每个既有项目的资源目录存在,资源管理「工作台资源」
+  // 才能立刻显示各项目文件夹(新建项目已在 rs:project-save 建目录)。
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    for (const project of projects) {
+      void host
+        .ensureWorkbenchProjectDir(`替换工作室/${project.id}`)
+        .catch(() => void 0);
+    }
+  }, [projects]);
+
+  // 经过 onchange 顺序更新时,必须基于“最新”项目快照,而不是渲染闭包快照
+  // (否则循环里连续两次 onChange 会互相覆盖)。
+  const projectsRef = useRef<RsProject[]>([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  const persist = useCallback(async (next: RsProject) => {
+    setProjects((list) => {
+      const exists = list.some((p) => p.id === next.id);
+      return exists ? list.map((p) => (p.id === next.id ? next : p)) : [next, ...list];
+    });
+    const host = hostRef.current;
+    if (!host) return;
+    setSaveState("saving");
+    try {
+      const result = await host.projectSave(next);
+      if (result && result.ok === false) {
+        setSaveState("idle");
+        setError(result.error || "项目保存失败");
+      } else {
+        setSaveState("saved");
+      }
+    } catch (reason) {
+      setSaveState("idle");
+      setError(`项目保存失败: ${errorText(reason)}`);
+    }
+  }, []);
+
+  const updateProject = useCallback(
+    async (mutator: (project: RsProject) => RsProject) => {
+      const base = projectsRef.current.find((p) => p.id === currentId);
+      if (!base) return;
+      await persist({ ...mutator(base), updatedAt: new Date().toISOString() });
+    },
+    [currentId, persist],
+  );
+
+  const createProject = useCallback(
+    async (title: string) => {
+      const project = createRsProject(title);
+      await persist(project);
+      setCurrentId(project.id);
+    },
+    [persist],
+  );
+
+  const removeProject = useCallback(
+    async (project: RsProject) => {
+      const host = hostRef.current;
+      if (host) {
+        try {
+          await host.projectDelete(project.id);
+        } catch (reason) {
+          setError(`删除失败: ${errorText(reason)}`);
+          return;
+        }
+      }
+      setProjects((list) => list.filter((p) => p.id !== project.id));
+      if (currentId === project.id) setCurrentId(null);
+      setConfirmDelete(null);
+    },
+    [currentId],
+  );
+
+  const exitStudio = useCallback(() => {
+    void hostRef.current?.hide().catch(() => void 0);
+    onExit();
+  }, [onExit]);
+
+  const openProject = useCallback(
+    async (project: RsProject) => {
+      await persist(project);
+      setCurrentId(project.id);
+      setSelectedShotId(project.workspace?.selectedShotId ?? project.shots[0]?.id ?? null);
+    },
+    [persist],
+  );
+
+  const startNewFromHome = useCallback(() => {
+    setCreateTitle(`人物替换项目 ${projects.length + 1}`);
+    setCreateOpen(true);
+  }, [projects.length]);
+
+  const goStep = useCallback(
+    async (step: RsStepKey) => {
+      if (!current) return;
+      const gate = projectStepGate(current, step);
+      if (!gate.ok) {
+        setError(gate.reason);
+        return;
+      }
+      await updateProject((project) => ({ ...project, step }));
+    },
+    [current, updateProject],
+  );
+
+  const selectShot = useCallback(
+    (shotId: string) => {
+      setSelectedShotId(shotId);
+      void updateProject((project) => ({
+        ...project,
+        workspace: { selectedShotId: shotId },
+      }));
+    },
+    [updateProject],
+  );
+
+  const selectedShot = useMemo(() => {
+    if (!current) return null;
+    return current.shots.find((s) => s.id === selectedShotId) ?? current.shots[0] ?? null;
+  }, [current, selectedShotId]);
+
+  const stepIndex = current ? RS_STEPS.findIndex((s) => s.key === current.step) : -1;
+
+  return (
+    <div className={`rs-root v2${current ? "" : " home"}`} data-replacement-studio="1">
+      <header className="rs-topbar">
+        <div className="rs-globalbar">
+          <span className="rs-brand">
+            <span className="logo-dot" aria-hidden="true" />
+            shuo
+          </span>
+          {current && <span className="rs-global-title">替换工作室 <span aria-hidden="true">›</span></span>}
+        </div>
+        <div className="rs-projectbar">
+          {current && (
+            <button
+              className="rs-back-pill"
+              onClick={() => setCurrentId(null)}
+              title="返回项目列表"
+            >
+              ← 人物替换项目
+            </button>
+          )}
+          {current && (
+            <div className="rs-nav-center">
+              <nav className="rs-steps v2" aria-label="步骤导航" data-active-step={current.step}>
+              {RS_STEPS.map((item, index) => {
+                const gate = projectStepGate(current, item.key);
+                const active = current.step === item.key;
+                const locked = !gate.ok && !active;
+                return (
+                  <button
+                    key={item.key}
+                    className={`rs-step${active ? " active" : ""}${locked ? " locked" : ""}`}
+                    aria-disabled={locked}
+                    title={locked ? gate.reason : item.label}
+                    onClick={() => void goStep(item.key)}
+                  >
+                    <span className="rs-step-num">{index + 1}</span>
+                    {item.label}
+                  </button>
+                );
+              })}
+              </nav>
+            </div>
+          )}
+          <span className="rs-spacer" />
+          <div className="rs-top-actions">
+          {current && (
+            <span className="rs-subtitle" title={current.title}>
+              {current.title}
+            </span>
+          )}
+          {current && <span className="rs-tag">已完成 {projectProgress(current)}%</span>}
+          {current && (
+            <span className="rs-save-state">
+              {saveState === "saving" ? "保存中…" : saveState === "saved" ? "已保存" : ""}
+            </span>
+          )}
+          {current && (
+            <button className="rs-btn danger" onClick={() => setConfirmDelete(current)}>
+              删除
+            </button>
+          )}
+          <div className="rs-canvas-menu-wrap">
+            <button className="rs-btn primary" onClick={() => setCanvasMenuOpen((value) => !value)} aria-expanded={canvasMenuOpen}>
+              加入画布⌄
+            </button>
+            {canvasMenuOpen && current && (
+              <div className="rs-canvas-menu" role="menu">
+                <button role="menuitem" onClick={() => { setCanvasMenuOpen(false); exitStudio(); }}>
+                  <strong>同步当前步骤到画布</strong><small>同步当前素材、镜头与生成结果</small>
+                </button>
+                <button role="menuitem" onClick={() => { setCanvasMenuOpen(false); exitStudio(); }}>
+                  <strong>同步整个项目到画布</strong><small>同步素材、图像、视频、音频与合成节点</small>
+                </button>
+              </div>
+            )}
+          </div>
+          </div>
+        </div>
+      </header>
+
+      {error && (
+        <div className="rs-banner error" style={{ margin: "0 16px" }}>
+          {error}
+          <button className="rs-btn ghost" onClick={() => setError("")}>
+            关闭
+          </button>
+        </div>
+      )}
+
+      <div className="rs-body">
+        {loading ? (
+          <div className="rs-scroll center">
+            <p className="rs-muted">
+              <span className="rs-spinner" /> 正在加载替换工作室…
+            </p>
+          </div>
+        ) : current ? (
+          <div className="rs-project-stage">
+            {current.step === "material" && (
+              <StudioMaterialStep project={current} onChange={updateProject} />
+            )}
+            {current.step === "image" && (
+              <StudioImageStep
+                project={current}
+                onChange={updateProject}
+                selectedShot={selectedShot}
+                onSelectShot={selectShot}
+              />
+            )}
+            {current.step === "video" && (
+              <StudioVideoStep
+                project={current}
+                onChange={updateProject}
+                selectedShot={selectedShot}
+                onSelectShot={selectShot}
+              />
+            )}
+            {current.step === "voice" && (
+              <StudioVoiceStep
+                project={current}
+                onChange={updateProject}
+                selectedShot={selectedShot}
+                onSelectShot={selectShot}
+              />
+            )}
+            {current.step === "compose" && (
+              <StudioComposeStep project={current} onChange={updateProject} />
+            )}
+          </div>
+        ) : (
+          <HomeView
+            projects={projects}
+            onCreateClick={startNewFromHome}
+            onOpen={openProject}
+            onDelete={(project) => setConfirmDelete(project)}
+          />
+        )}
+      </div>
+
+      {current && (
+        <footer className="rs-step-footer">
+          <div className="rs-guidance">
+            <strong>{STEP_GUIDANCE[current.step].title}</strong>
+            <small>{STEP_GUIDANCE[current.step].detail}</small>
+          </div>
+          <div className="rs-footer-actions">
+            {stepIndex > 0 && (
+              <button
+                className="rs-btn"
+                onClick={() => void goStep(RS_STEPS[stepIndex - 1]!.key)}
+              >
+                ← 上一步
+              </button>
+            )}
+            <button
+              className="rs-btn primary"
+              onClick={() => {
+                if (stepIndex < RS_STEPS.length - 1) void goStep(RS_STEPS[stepIndex + 1]!.key);
+              }}
+            >
+              {STEP_NEXT_LABELS[current.step]}
+              {current.step !== "compose" ? " →" : ""}
+            </button>
+          </div>
+        </footer>
+      )}
+
+      {confirmDelete && (
+        <div className="rs-modal-backdrop" onClick={() => setConfirmDelete(null)}>
+          <div className="rs-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>删除项目「{confirmDelete.title}」？</h2>
+            <p className="rs-muted">仅删除替换工作室的记录，不会删除磁盘上的素材与生成结果文件。</p>
+            <div className="actions">
+              <button className="rs-btn" onClick={() => setConfirmDelete(null)}>
+                取消
+              </button>
+              <button className="rs-btn danger" onClick={() => void removeProject(confirmDelete)}>
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createOpen && (
+        <div className="rs-modal-backdrop" onClick={() => setCreateOpen(false)}>
+          <div className="rs-modal" onClick={(event) => event.stopPropagation()}>
+            <h2>新建人物替换项目</h2>
+            <div className="rs-field">
+              <span>项目名称</span>
+              <input
+                autoFocus
+                value={createTitle}
+                onChange={(event) => setCreateTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    setCreateOpen(false);
+                    void createProject(createTitle);
+                  }
+                }}
+                placeholder="例如：广告替换 001"
+              />
+            </div>
+            <div className="actions">
+              <button className="rs-btn" onClick={() => setCreateOpen(false)}>
+                取消
+              </button>
+              <button
+                className="rs-btn primary"
+                onClick={() => {
+                  setCreateOpen(false);
+                  void createProject(createTitle);
+                }}
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeView({
+  projects,
+  onCreateClick,
+  onOpen,
+  onDelete,
+}: {
+  projects: RsProject[];
+  onCreateClick: () => void;
+  onOpen: (project: RsProject) => void;
+  onDelete: (project: RsProject) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const filtered = filter.trim()
+    ? projects.filter((p) => p.title.toLowerCase().includes(filter.trim().toLowerCase()))
+    : projects;
+  const [previews, setPreviews] = useState<Record<string, string | null>>({});
+  const [busy, setBusy] = useState(false);
+  const [importError, setImportError] = useState("");
+  // 首页合成器「创建视频设置」:三档智能剪辑模式与帧率(16/24/30),新项目创建时写入 settings。
+  const [clipMode, setClipMode] = useState<"stable" | "balanced" | "sensitive">("balanced");
+  const [clipFps, setClipFps] = useState<number>(24);
+  // 原始工作室进入首页时设置面板默认收起，点击“设置”后再展开。
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+  useEffect(() => {
+    const need = projects.filter((p) => p.shots[0]?.keyframePath && !(p.id in previews));
+    if (need.length === 0) return;
+    let cancelled = false;
+    void ensureHostApi()
+      .then((host) =>
+        Promise.all(
+          need.map(async (p) => {
+            const url = await host.readImage(p.shots[0]!.keyframePath!).catch(() => null);
+            return [p.id, url] as const;
+          }),
+        ),
+      )
+      .then((entries) => {
+        if (cancelled) return;
+        setPreviews((cur) => {
+          const next = { ...cur };
+          for (const [id, url] of entries) next[id] = url ?? null;
+          return next;
+        });
+      })
+      .catch(() => void 0);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
+
+  const startNewImmediately = async () => {
+    if (busy) return;
+    setBusy(true);
+    setImportError("");
+    try {
+      const host = await ensureHostApi();
+      const picked = await host.pickVideo();
+      const file = picked?.[0];
+      if (!file) return;
+      setVideoReady(true);
+      const probe = await host.probe({ file: file.path });
+      const project = createRsProject(`人物替换项目 ${projects.length + 1}`);
+      // 把首页合成器选择的「创建视频设置」写入新项目,后续智能裁剪使用。
+      project.settings.smartClipMode = clipMode;
+      project.settings.smartClipFps = clipFps;
+      project.sources = [{
+        id: rsId("src"),
+        path: file.path,
+        name: file.name,
+        kind: probe.isVideo ? "video" : "image",
+        durationSec: probe.durationSec,
+        width: probe.width,
+        height: probe.height,
+        keyframePath: probe.isVideo ? null : file.path,
+        analysisStatus: probe.isVideo ? "idle" : "done",
+        analysisError: null,
+      }];
+      await host.projectSave(project);
+      onOpen(project);
+    } catch (reason) {
+      setImportError(`导入视频失败：${errorText(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rs-scroll center">
+      <div className="rs-home-page">
+        {importError && (
+          <div className="rs-banner error rs-home-error">
+            {importError}
+            <button className="rs-btn ghost" onClick={() => setImportError("")}>关闭</button>
+          </div>
+        )}
+        <header className="rs-home-hero">
+          <span className="rs-eyebrow">SHUO CANVAS · 替换工作室</span>
+          <h1>完整替换视频中的人物与声音</h1>
+          <p>
+            导入视频 → 智能裁剪（FFmpeg 场景检测，平衡/稳定/敏感）→ 检测人物 → 绑定目标形象 →
+            逐镜头替换 → 声音克隆 → 合成导出。生成与检测使用 YUH 中转站配置；智能裁剪需本机 ffmpeg。
+          </p>
+        </header>
+
+        <section className="rs-home-composer">
+          <div className="rs-composer-body">
+            <div className="rs-composer-video">
+              <div
+                className="rs-composer-video-thumb"
+                role="button"
+                tabIndex={0}
+                aria-label="导入原始视频"
+                onClick={() => void startNewImmediately()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void startNewImmediately();
+                  }
+                }}
+              >
+                <span className="rs-composer-video-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="5" width="18" height="14" rx="3" />
+                    <path d="m9 9 6 3-6 3Z" />
+                  </svg>
+                </span>
+                <strong>导入原始视频</strong>
+                <span>可一次选择或拖入一个或多个视频，导入后将在这里显示。</span>
+                <button className="rs-btn" onClick={(event) => { event.stopPropagation(); void startNewImmediately(); }} disabled={busy}>
+                  {busy ? "导入中…" : "选择视频"}
+                </button>
+              </div>
+            </div>
+
+            {settingsOpen && (
+              <aside className="rs-composer-settings">
+                <strong className="rs-composer-settings-title">创建视频设置</strong>
+                <div className="rs-composer-setting-row">
+                  <span>模式:</span>
+                  <div className="rs-segmented" role="group" aria-label="创建模式">
+                    {(["stable", "balanced", "sensitive"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`rs-segment${clipMode === mode ? " is-active" : ""}`}
+                        aria-pressed={clipMode === mode}
+                        onClick={() => setClipMode(mode)}
+                      >
+                        {mode === "stable" ? "稳" : mode === "balanced" ? "均衡" : "敏感"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rs-composer-setting-row">
+                  <span>帧率:</span>
+                  <div className="rs-segmented" role="group" aria-label="输出帧率">
+                    {[16, 24, 30].map((fps) => (
+                      <button
+                        key={fps}
+                        type="button"
+                        className={`rs-segment${clipFps === fps ? " is-active" : ""}`}
+                        aria-pressed={clipFps === fps}
+                        onClick={() => setClipFps(fps)}
+                      >
+                        {fps}帧
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="rs-composer-settings-hint">输入镜头可能帧率不相同，视频信息会不准确。</p>
+              </aside>
+            )}
+          </div>
+
+          <footer className="rs-home-composer-footer">
+            <div className="rs-composer-source-controls">
+              <button className="rs-btn" onClick={() => void startNewImmediately()} disabled={busy}>
+                {busy ? "导入中…" : "加入视频"}
+              </button>
+              <span className="rs-composer-flow-hint">
+                处理时切分镜头并抽帧检测；跳过时保留整段视频并抽帧检测。
+              </span>
+            </div>
+            <div className="rs-home-process-actions">
+              <button className="rs-btn" onClick={() => void startNewImmediately()} disabled={busy || !videoReady}>
+                跳过处理
+              </button>
+              <button
+                className={`rs-btn${settingsOpen ? " is-active" : ""}`}
+                aria-pressed={settingsOpen}
+                onClick={() => setSettingsOpen((open) => !open)}
+              >
+                设置
+              </button>
+              <button className="rs-btn contrast" onClick={() => void startNewImmediately()} disabled={busy || !videoReady}>
+                {busy ? "导入中…" : "开始处理 →"}
+              </button>
+            </div>
+          </footer>
+        </section>
+
+        <header className="rs-projects-heading">
+          <h2>我的人物替换项目</h2>
+          {projects.length > 0 && <p>最近更新优先显示</p>}
+          <span className="rs-spacer-line" />
+          <input
+            className="rs-filter"
+            value={filter}
+            placeholder="输入项目名称"
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </header>
+
+        <div className="rs-project-grid">
+          <button className="rs-new-card" onClick={onCreateClick}>
+            <span className="plus">＋</span>
+            新建人物替换项目
+          </button>
+          {filtered.map((project) => {
+            const progress = projectProgress(project);
+            const imageCount = project.shots.reduce((n, s) => n + s.imageResults.length, 0);
+            return (
+              <div className="rs-project-card" key={project.id} onClick={() => onOpen(project)}>
+                <div className="thumb">
+                  {previews[project.id] ? (
+                    <img src={previews[project.id]!} alt={project.title} />
+                  ) : (
+                    <span className="empty">{project.sources.length > 0 ? "素材加载中…" : "未设置素材"}</span>
+                  )}
+                </div>
+                <div className="meta">
+                  <div className="name">{project.title}</div>
+                  <div className="info">
+                    <span>
+                      {new Date(project.updatedAt).toLocaleString("zh-CN", {
+                        month: "numeric",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span className="entry-badge">{progress}% · 图 {imageCount}</span>
+                  </div>
+                  <div style={{ marginTop: 6 }}>
+                    <div className="rs-progress">
+                      <div className="fill" style={{ width: `${progress}%` }} />
+                    </div>
+                  </div>
+                  <div className="info" style={{ marginTop: 6 }}>
+                    <span className="rs-tag">
+                      {project.shots.length > 0 ? `${project.shots.length} 镜头` : "未分析"}
+                    </span>
+                    <span>
+                      {project.sourceCharacters.length} 身份 · {project.characters.length} 角色
+                    </span>
+                  </div>
+                </div>
+                <div style={{ padding: "0 12px 10px", display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    className="rs-btn ghost"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete(project);
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {filtered.length === 0 && (
+          <p className="rs-muted" style={{ marginTop: 12 }}>
+            {projects.length === 0
+              ? "还没有项目。点击「新建人物替换项目」开始：导入视频 → 智能裁剪 → 检测人物 → 绑定目标形象 → 逐镜头替换。"
+              : `没有匹配「${filter}」的项目。`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export { rsId };
+
+/** 生产入口：直接挂载 ShuoCanvas 原始替换工作室。 */
+export function ReplacementStudioWorkspace({ onExit }: { onExit: () => void; onActiveWorkbenchProject?: (project: { studio: string; slug: string; projectId: string; title: string }) => void }) {
+  return <OriginalReplacementWorkspace onExit={onExit} />;
+}
+
+*/

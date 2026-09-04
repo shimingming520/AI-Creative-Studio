@@ -214,6 +214,8 @@ export type RsAudioAsset = {
 
 export type RsSettings = {
   smartClipMode: RsSmartClipMode;
+  /** 首页合成器「创建视频设置」选择的抽帧/输出帧率(如 16/24/48)。 */
+  smartClipFps: number;
   detectProviderId: string;
   detectModel: string;
   detectPrompt: string;
@@ -308,6 +310,7 @@ export const RS_DEFAULT_DETECT_PROMPT = [
 export function defaultRsSettings(): RsSettings {
   return {
     smartClipMode: "balanced",
+    smartClipFps: 24,
     detectProviderId: "",
     detectModel: "",
     detectPrompt: RS_DEFAULT_DETECT_PROMPT,

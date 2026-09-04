@@ -387,6 +387,12 @@ export function StudioComposeStep({
         ...p,
         compose: { ...p.compose, finalVideoPath: result.outputPath, status: "done" as const, error: null, composedShotIds: ids },
       }));
+      // 流水线联动:把成片路径交给语音工作室「成片导出」,作为默认参考视频。
+      try {
+        localStorage.setItem("vs:incoming-video", result.outputPath);
+      } catch {
+        // 忽略配额错误
+      }
       setComposeShotIds(ids);
     } catch (reason) {
       setMessage(`合成失败: ${errorText(reason)}`);

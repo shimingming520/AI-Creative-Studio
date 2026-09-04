@@ -8208,7 +8208,7 @@ async function startApplication(): Promise<void> {
 
   // Serpent-q0b1: the renderer syncs native menu item enabled-state (business
   // undo/redo availability). Only commands from the real window are accepted.
-  ipcMain.handle(APPLICATION_MENU_ITEM_STATE_CHANNEL, (event, input: unknown) => {
+  if (!SERPENT_HOSTED) ipcMain.handle(APPLICATION_MENU_ITEM_STATE_CHANNEL, (event, input: unknown) => {
     if (!serpentWebContents() || event.sender !== serpentWebContents()) {
       return;
     }
@@ -8371,6 +8371,8 @@ if (!SERPENT_HOSTED) {
 // rendered UI via setSerpentHostedRenderer(). This is the feasibility seam;
 // standalone Serpent never calls these.
 let serpentShutdownPromise: Promise<void> | null = null;
+let serpentHostedStartPromise: Promise<void> | null = null;
+let hostedMenuStateHandlerRegistered = false;
 
 export type HostedManagedLinkedFolderResult = {
   ok: boolean;
@@ -8794,7 +8796,35 @@ export async function hostedManageLinkedFolder(input: {
 
 export async function startSerpentHosted(): Promise<void> {
   if (!SERPENT_HOSTED) return;
-  await startApplication();
+  if (!hostedMenuStateHandlerRegistered) {
+    ipcMain.handle(APPLICATION_MENU_ITEM_STATE_CHANNEL, () => undefined);
+    hostedMenuStateHandlerRegistered = true;
+  }
+  if (startupComplete || workerClient) return;
+  if (serpentHostedStartPromise) return serpentHostedStartPromise;
+  serpentHostedStartPromise = startApplication()
+    .catch(async (error) => {
+      // Hosted 重试必须先撤销上一次半启动状态，否则 IPC handler 会重复注册，
+      // 同时残留的 workerClient 会让下一次启动误判为已就绪。
+      criticalConfirmationWindowManager?.dispose();
+      criticalConfirmationWindowManager = undefined;
+      if (hostedMenuStateHandlerRegistered) {
+        ipcMain.removeHandler(APPLICATION_MENU_ITEM_STATE_CHANNEL);
+        hostedMenuStateHandlerRegistered = false;
+      }
+      try {
+        await workerClient?.shutdown();
+      } catch {
+        // 启动失败清理仅做最佳努力。
+      }
+      workerClient = undefined;
+      startupComplete = false;
+      throw error;
+    })
+    .finally(() => {
+      serpentHostedStartPromise = null;
+    });
+  await serpentHostedStartPromise;
 }
 
 export function stopSerpentHosted(): Promise<void> {
@@ -8805,6 +8835,10 @@ export function stopSerpentHosted(): Promise<void> {
       aiQueueScheduler.clearAll();
       criticalConfirmationWindowManager?.dispose();
       criticalConfirmationWindowManager = undefined;
+      if (hostedMenuStateHandlerRegistered) {
+        ipcMain.removeHandler(APPLICATION_MENU_ITEM_STATE_CHANNEL);
+        hostedMenuStateHandlerRegistered = false;
+      }
       offscreenThumbnailRenderer?.dispose();
       offscreenThumbnailRenderer = undefined;
       pluginActivationCoordinator?.dispose('supervisor-shutdown');

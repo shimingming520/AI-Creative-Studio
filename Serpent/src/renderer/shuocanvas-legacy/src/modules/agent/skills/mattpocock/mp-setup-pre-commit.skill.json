@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "mp-setup-pre-commit",
+  "title": "Setup Pre-commit（预提交配置）",
+  "riskLevel": "confirm",
+  "category": "misc",
+  "appliesWhen": [
+    "pre-commit",
+    "Husky",
+    "lint-staged",
+    "git hooks",
+    "提交前检查",
+    "prettier typecheck"
+  ],
+  "requiredInputs": [],
+  "missingInputQuestions": [],
+  "recommendedModelKind": "",
+  "defaultParams": {},
+  "commands": []
+}

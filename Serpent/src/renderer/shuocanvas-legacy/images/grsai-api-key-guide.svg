@@ -1,0 +1,145 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="960" height="2100" viewBox="0 0 960 2100" role="img" aria-labelledby="title desc">
+  <title id="title">GRSAI API Key 获取指南</title>
+  <desc id="desc">根据 GRSAI 中文后台实际布局整理：左侧 API Management 分组下点击 API Key，登录后创建或复制 API Key。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07130f"/>
+      <stop offset="0.55" stop-color="#0a0f17"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#34d399"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#ef4444"/>
+    </marker>
+    <style>
+      .root { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; letter-spacing: 0; }
+      .eyebrow { font-size: 24px; fill: rgba(255,255,255,0.64); font-weight: 800; }
+      .title { font-size: 56px; fill: rgba(255,255,255,0.96); font-weight: 900; }
+      .subtitle { font-size: 26px; fill: rgba(255,255,255,0.72); font-weight: 700; }
+      .panel-title { font-size: 33px; fill: rgba(255,255,255,0.96); font-weight: 900; }
+      .panel-text { font-size: 24px; fill: rgba(255,255,255,0.78); font-weight: 700; }
+      .caption { font-size: 20px; fill: rgba(255,255,255,0.60); font-weight: 650; }
+      .ui { font-size: 20px; fill: rgba(255,255,255,0.92); font-weight: 780; }
+      .ui-small { font-size: 17px; fill: rgba(255,255,255,0.64); font-weight: 650; }
+      .ui-dark { font-size: 18px; fill: #06120f; font-weight: 900; }
+      .step-label { font-size: 23px; fill: #06120f; font-weight: 900; }
+      .green-label { font-size: 28px; fill: #34d399; font-weight: 900; }
+      .red-label { font-size: 28px; fill: #ef4444; font-weight: 900; }
+    </style>
+  </defs>
+
+  <rect width="960" height="2100" fill="url(#bg)"/>
+  <g class="root">
+    <path d="M70 128 C220 52 360 86 486 152 C642 232 740 126 890 84" fill="none" stroke="#34d399" stroke-width="2" opacity="0.22"/>
+    <rect x="54" y="54" width="852" height="1992" rx="34" fill="rgba(255,255,255,0.050)" stroke="rgba(255,255,255,0.11)"/>
+
+    <text x="92" y="136" class="eyebrow">AiCanvas 设置 · API Key</text>
+    <text x="92" y="218" class="title">GRSAI API Key</text>
+    <text x="92" y="292" class="title">真实后台路径</text>
+    <text x="92" y="342" class="subtitle">入口在左侧栏 API Management 分组下，不在用户信息页。</text>
+    <text x="92" y="382" class="subtitle">真实路由：GRSAI 后台 / dashboard / api-keys。</text>
+
+    <rect x="92" y="422" width="776" height="120" rx="24" fill="#14b8a6" opacity="0.13"/>
+    <rect x="92" y="422" width="776" height="120" rx="24" fill="none" stroke="#34d399" stroke-opacity="0.36"/>
+    <text x="126" y="468" class="panel-text">最短路径</text>
+    <text x="126" y="512" class="panel-title">登录 → API Management → API Key → 创建API Key</text>
+
+    <g transform="translate(92 610)">
+      <rect width="352" height="68" rx="20" fill="url(#brand)" opacity="0.96"/>
+      <text x="32" y="43" class="ui-dark">打开 GRSAI API Key 页面</text>
+    </g>
+
+    <g transform="translate(92 724)" filter="url(#shadow)">
+      <rect width="776" height="300" rx="28" fill="#07110f"/>
+      <rect width="776" height="300" rx="28" fill="none" stroke="rgba(255,255,255,0.12)"/>
+      <circle cx="56" cy="62" r="28" fill="url(#brand)"/>
+      <text x="45" y="74" class="step-label">1</text>
+      <text x="104" y="56" class="panel-title">未登录时先点“立即登录”</text>
+      <text x="104" y="94" class="panel-text">GRSAI 中文后台会显示“请先登录”。</text>
+
+      <rect x="104" y="126" width="170" height="136" rx="18" fill="#101820" stroke="rgba(255,255,255,0.10)"/>
+      <text x="126" y="154" class="ui">Grsai API</text>
+      <text x="126" y="190" class="ui-small">用户信息</text>
+      <text x="126" y="222" class="ui-small">仪表板</text>
+      <text x="126" y="254" class="ui-small">帮助中心</text>
+
+      <rect x="312" y="126" width="360" height="136" rx="18" fill="#111827" stroke="rgba(255,255,255,0.10)"/>
+      <text x="338" y="164" class="ui">用户信息</text>
+      <text x="338" y="196" class="ui-small">查看您的账户信息</text>
+      <rect x="382" y="214" width="220" height="36" rx="12" fill="#1f2937"/>
+      <text x="438" y="238" class="ui">请先登录</text>
+      <rect x="616" y="210" width="88" height="42" rx="12" fill="#34d399"/>
+      <text x="630" y="237" class="ui-dark">立即登录</text>
+      <path d="M696 96 L664 210" fill="none" stroke="#34d399" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <text x="604" y="92" class="green-label">登录</text>
+    </g>
+
+    <g transform="translate(92 1064)" filter="url(#shadow)">
+      <rect width="776" height="300" rx="28" fill="#07110f"/>
+      <rect width="776" height="300" rx="28" fill="none" stroke="rgba(255,255,255,0.12)"/>
+      <circle cx="56" cy="62" r="28" fill="url(#brand)"/>
+      <text x="45" y="74" class="step-label">2</text>
+      <text x="104" y="56" class="panel-title">左侧点击 API Key</text>
+      <text x="104" y="94" class="panel-text">真实菜单分组写的是 API Management。</text>
+
+      <rect x="104" y="126" width="228" height="146" rx="18" fill="#101820" stroke="rgba(255,255,255,0.10)"/>
+      <text x="126" y="154" class="ui-small">公告 / 用户信息 / 仪表板</text>
+      <text x="126" y="184" class="ui-small">模型列表 / 日志 / 充值</text>
+      <text x="126" y="214" class="ui-small">API Management</text>
+      <rect x="118" y="226" width="164" height="36" rx="12" fill="#183529"/>
+      <text x="136" y="250" class="ui">API Key</text>
+      <path d="M656 92 L282 238" fill="none" stroke="#34d399" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow)"/>
+      <text x="516" y="92" class="green-label">点 API Key</text>
+      <text x="392" y="174" class="caption">同一分组下还有“存储库”、</text>
+      <text x="392" y="206" class="caption">“在线体验/文档”，不要点错。</text>
+    </g>
+
+    <g transform="translate(92 1404)" filter="url(#shadow)">
+      <rect width="776" height="300" rx="28" fill="#07110f"/>
+      <rect width="776" height="300" rx="28" fill="none" stroke="rgba(255,255,255,0.12)"/>
+      <circle cx="56" cy="62" r="28" fill="url(#brand)"/>
+      <text x="45" y="74" class="step-label">3</text>
+      <text x="104" y="56" class="panel-title">创建或复制 API Key</text>
+      <text x="104" y="94" class="panel-text">页面标题是“API Key / 管理您的API Key”。</text>
+
+      <rect x="104" y="126" width="620" height="118" rx="18" fill="#111827" stroke="rgba(255,255,255,0.10)"/>
+      <text x="132" y="158" class="ui">API Key</text>
+      <text x="132" y="190" class="ui-small">管理您的API Key</text>
+      <rect x="516" y="142" width="150" height="40" rx="12" fill="#34d399"/>
+      <text x="536" y="168" class="ui-dark">创建API Key</text>
+      <text x="132" y="226" class="ui-small">名称 / API Key / 剩余积分 / 到期时间 / 创建日期 / 操作</text>
+      <path d="M650 88 L604 142" fill="none" stroke="#ef4444" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow-red)"/>
+      <text x="560" y="86" class="red-label">创建</text>
+      <text x="104" y="278" class="caption">已有 Key 时点复制图标；不要复制积分余额或套餐文字。</text>
+    </g>
+
+    <g transform="translate(92 1744)" filter="url(#shadow)">
+      <rect width="776" height="244" rx="28" fill="#07110f"/>
+      <rect width="776" height="244" rx="28" fill="none" stroke="rgba(255,255,255,0.12)"/>
+      <circle cx="56" cy="62" r="28" fill="url(#brand)"/>
+      <text x="45" y="74" class="step-label">4</text>
+      <text x="104" y="56" class="panel-title">填回 AiCanvas 并测试</text>
+      <text x="104" y="94" class="panel-text">设置 · API Key · GRSAI，粘贴后点测试连接。</text>
+      <rect x="104" y="124" width="620" height="70" rx="18" fill="#111827" stroke="rgba(255,255,255,0.10)"/>
+      <text x="132" y="166" class="ui">API 密钥</text>
+      <rect x="252" y="146" width="346" height="22" rx="11" fill="rgba(255,255,255,0.18)"/>
+      <rect x="614" y="136" width="90" height="42" rx="12" fill="#22c55e"/>
+      <text x="628" y="163" class="ui">测试连接</text>
+      <text x="104" y="224" class="caption">测试通过后再去节点里调用 GRSAI 模型。</text>
+    </g>
+
+    <g transform="translate(92 2020)">
+      <rect width="776" height="1" fill="rgba(255,255,255,0.12)"/>
+      <text x="0" y="38" class="caption">重点：GRSAI 的真实入口是左侧 API Management → API Key。</text>
+    </g>
+  </g>
+</svg>

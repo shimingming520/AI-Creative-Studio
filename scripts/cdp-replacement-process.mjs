@@ -1,0 +1,8 @@
+import WebSocket from 'ws';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const ts=await (await fetch('http://127.0.0.1:9223/json/list')).json(); const t=ts.find(x=>x.type==='page'&&/serpentHosted/.test(x.url));
+const ws=new WebSocket(t.webSocketDebuggerUrl,{maxPayload:128*1024*1024}); await new Promise((r,j)=>{ws.on('open',r);ws.on('error',j)}); let id=0,p=new Map(); ws.on('message',d=>{const m=JSON.parse(d);if(m.id&&p.has(m.id)){p.get(m.id)(m);p.delete(m.id)}}); const ev=async e=>{const r=await new Promise((r,j)=>{const i=++id;p.set(i,m=>m.error?j(m.error):r(m.result));ws.send(JSON.stringify({id:i,method:'Runtime.evaluate',params:{expression:e,awaitPromise:true,returnByValue:true}}))}); return r?.result?.value};
+console.log(await ev(`(()=>({text:document.querySelector('#v2-wrap')?.textContent?.slice(0,900),buttons:[...document.querySelectorAll('#v2-wrap button')].map((b,i)=>({i,text:b.textContent.trim(),disabled:b.disabled})).filter(x=>x.text)}))()`));
+console.log('start',await ev(`(()=>{const b=[...document.querySelectorAll('#v2-wrap button')].find(b=>/开始处理/.test(b.textContent)); b?.click(); return Boolean(b)})()`));
+for(let i=0;i<120;i++){await sleep(1000); const s=await ev(`(()=>({text:document.querySelector('#v2-wrap')?.textContent?.slice(-1800)||'', buttons:[...document.querySelectorAll('#v2-wrap button')].map(b=>b.textContent.trim()).filter(Boolean), project:document.querySelector('#v2-wrap')?.querySelector('[data-project-id]')?.getAttribute('data-project-id')||null}))()`); if(i%5===0) console.log('tick',i,s); if(/素材设定|镜头|分析完成|失败|跳过人物检测/.test(s.text)&&i>3){console.log('done',s);break;}}
+ws.close();

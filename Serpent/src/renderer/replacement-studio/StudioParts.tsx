@@ -541,8 +541,8 @@ export function TargetRail({
   return (
     <aside className="rs-rail" aria-label="目标素材">
       <header className="rs-rail-heading">
-        <strong>目标素材</strong>
-        <span className="rs-muted">拖拽/点击角色卡建立人物引用</span>
+        <strong>{activeTab === "character" ? "上传人物基础形象" : activeTab === "scene" ? "场景素材" : activeTab === "audio" ? "音频素材" : "总素材"}</strong>
+        <span className="rs-muted">{activeTab === "character" ? "上传的第一张图片作为基础形象，后续生成会新增形象。" : "选择素材后在右侧查看详情并生成"}</span>
       </header>
       <div className="rs-rail-tabs" role="tablist">
         {(["character", "scene", "audio", "library"] as RsAssetTab[]).map((tab) => (
@@ -559,7 +559,7 @@ export function TargetRail({
         ))}
       </div>
       <div className="rs-rail-scroll">
-        <div className="rs-rail-group">
+        {activeTab === "character" && <div className="rs-rail-group">
           <div className="rs-rail-group-title">
             角色：
             <button className="rs-btn ghost" onClick={onAddCharacter}>＋ 新建角色</button>
@@ -579,8 +579,8 @@ export function TargetRail({
               onRemove={() => onRemoveCard(`character:${character.id}`)}
             />
           ))}
-        </div>
-        <div className="rs-rail-group">
+        </div>}
+        {activeTab === "scene" && <div className="rs-rail-group">
           <div className="rs-rail-group-title">
             场景：
             <button className="rs-btn ghost" onClick={onAddScene}>＋ 新建场景</button>
@@ -597,8 +597,8 @@ export function TargetRail({
           {project.scenes.length === 0 && (
             <p className="rs-muted" style={{ fontSize: 11, padding: "6px 2px" }}>没有场景素材</p>
           )}
-        </div>
-        <div className="rs-rail-group">
+        </div>}
+        {activeTab === "audio" && <div className="rs-rail-group">
           <div className="rs-rail-group-title">音频：</div>
           {project.audios.length === 0 && (
             <p className="rs-muted" style={{ fontSize: 11, padding: "6px 2px" }}>没有音频素材（声音克隆参考音色）</p>
@@ -616,7 +616,13 @@ export function TargetRail({
               </div>
             </div>
           ))}
-        </div>
+        </div>}
+        {activeTab === "library" && <div className="rs-rail-group">
+          <div className="rs-rail-group-title">全部素材：</div>
+          <p className="rs-muted" style={{ fontSize: 11, padding: "6px 2px" }}>
+            {counts.library ? `已有 ${counts.library} 个生成素材` : "暂无生成素材"}
+          </p>
+        </div>}
       </div>
     </aside>
   );
