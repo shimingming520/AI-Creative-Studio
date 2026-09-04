@@ -516,8 +516,10 @@ function Section({
   return (
     <section className="nav-section">
       <div className="nav-section-heading">
-        {collapsible ? <button aria-expanded={!collapsed} aria-label={collapsed ? `展开${title}` : `折叠${title}`} className={`nav-section-disclosure${collapsed ? "" : " is-expanded"}`} onClick={onToggleCollapsed} type="button"><Icon name="chevron-right" size={12} /></button> : null}
-        <span className="nav-section-title">{title}</span>
+        <span className="nav-section-title-wrap">
+          {collapsible ? <button aria-expanded={!collapsed} aria-label={collapsed ? `展开${title}` : `折叠${title}`} className={`nav-section-disclosure${collapsed ? "" : " is-expanded"}`} onClick={onToggleCollapsed} type="button"><Icon name="chevron-right" size={12} /></button> : null}
+          <span className="nav-section-title">{title}</span>
+        </span>
         {(action || secondaryAction || toggleAction || tertiaryAction) && (
           <span className="nav-section-actions">
             {toggleAction && (
