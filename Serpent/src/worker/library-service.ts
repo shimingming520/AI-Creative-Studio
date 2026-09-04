@@ -15953,6 +15953,19 @@ export class LibraryService {
     this.persistLinkedFolderImageDimensions(openLibrary, folderId);
     this.reconcileLinkedWatchers(openLibrary);
 
+    // Linked-folder import creates assets immediately. Publish the mutation
+    // now so the renderer refreshes the grid/sidebar without waiting for a
+    // later filesystem-watcher pass (or a manual refresh).
+    if (entries.length > 0) {
+      this.options.onAssetsChanged?.({
+        type: 'asset.changed',
+        libraryId: input.libraryId,
+        changedCount: entries.length,
+        missingCount: 0,
+        source: 'client',
+      });
+    }
+
     return {
       folderId,
       displayName: normalizedName,
@@ -16096,6 +16109,18 @@ export class LibraryService {
                         AND hidden_sequence_frame.position > 0
                    )`)
       .get(input.folderId) as { count: number };
+    // Relink updates the effective source/availability for the whole linked
+    // folder. Notify listeners immediately; otherwise stale cards can remain
+    // until the watcher happens to reconcile the new root.
+    if (countRow.count > 0) {
+      this.options.onAssetsChanged?.({
+        type: 'asset.changed',
+        libraryId: input.libraryId,
+        changedCount: countRow.count,
+        missingCount: 0,
+        source: 'client',
+      });
+    }
     return {
       folderId: input.folderId,
       displayName: folder.display_name,

@@ -587,31 +587,36 @@ export async function saveOutputFromUrlToServer(_0x64c79e) {
     throw new Error("保存到 output 失败: 缺少 url");
   }
   const _0x153bcb = String(_0x64c79e?.dedupeKey || (_0x64c79e?.taskKey ? _0x64c79e.taskKey + ":" + _0x25acb5 : _0x25acb5)).trim();
-  const _0x2f1972 = _0x153bcb || _0x25acb5;
-  if (_saveOutputFromUrlCache.has(_0x2f1972)) {
-    return _saveOutputFromUrlCache.get(_0x2f1972);
+  const _0x2f1972 = [_0x153bcb, String(_0x64c79e?.subDir || "").trim(), String(_0x64c79e?.kind || "").trim()].join("|");
+  const _0x2f1973 = _0x2f1972 || _0x25acb5;
+  if (_saveOutputFromUrlCache.has(_0x2f1973)) {
+    return _saveOutputFromUrlCache.get(_0x2f1973);
   }
-  if (_saveOutputFromUrlInflight.has(_0x2f1972)) {
-    return _saveOutputFromUrlInflight.get(_0x2f1972);
+  if (_saveOutputFromUrlInflight.has(_0x2f1973)) {
+    return _saveOutputFromUrlInflight.get(_0x2f1973);
   }
   const _0x3e88a2 = {
     url: _0x25acb5,
     ext: _0x64c79e?.ext,
     maxBytes: _0x64c79e?.maxBytes,
-    dedupeKey: _0x153bcb
+    dedupeKey: _0x153bcb,
+    // 远程 URL 保存也必须携带项目目录/媒体类型，否则资源会落到通用
+    // 输出目录，工作台项目树自然无法与工作室内容对齐。
+    subDir: _0x64c79e?.subDir,
+    kind: _0x64c79e?.kind
   };
   const _0x531508 = normalizePositiveTimeoutMs(_0x64c79e?.timeoutMs ?? _0x64c79e?.timeout, SAVE_OUTPUT_FROM_URL_TIMEOUT_MS);
   const _0x381e76 = a111_0x56a2bf("/api/v2/save_output_from_url", _0x3e88a2, {
     provider: "local",
     timeout: _0x531508
   }).then(_0x11f458 => {
-    _rememberSavedOutput(_0x2f1972, _0x11f458);
+    _rememberSavedOutput(_0x2f1973, _0x11f458);
     return _0x11f458;
   });
-  _saveOutputFromUrlInflight.set(_0x2f1972, _0x381e76);
+  _saveOutputFromUrlInflight.set(_0x2f1973, _0x381e76);
   _0x381e76.finally(() => {
-    if (_saveOutputFromUrlInflight.get(_0x2f1972) === _0x381e76) {
-      _saveOutputFromUrlInflight.delete(_0x2f1972);
+    if (_saveOutputFromUrlInflight.get(_0x2f1973) === _0x381e76) {
+      _saveOutputFromUrlInflight.delete(_0x2f1973);
     }
   }).catch(() => {});
   return _0x381e76;

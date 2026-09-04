@@ -40,6 +40,7 @@ import {
 import "./storyboard-script.css";
 
 const DRAFT_KEY = "sw:draft:v1";
+const TASK_HISTORY_KEY = "sw:task-history:v1";
 
 type GenStatus = "idle" | "running" | "done" | "error";
 
@@ -55,6 +56,19 @@ type GenState = {
 };
 
 type GenMap = Record<string, { image: GenState; video: GenState }>;
+
+type StudioTaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+type StudioTaskRecord = {
+  id: string;
+  kind: "script" | "image" | "video" | "batch-image" | "batch-video";
+  label: string;
+  status: StudioTaskStatus;
+  progress: number;
+  stage?: string;
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+};
 
 const IDLE_GEN: GenState = { status: "idle", items: [] };
 
@@ -124,6 +138,22 @@ function loadDraft(): DraftState {
   }
 }
 
+function loadTaskHistory(): StudioTaskRecord[] {
+  try {
+    const raw = localStorage.getItem(TASK_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.slice(0, 80).map((item) =>
+          item?.status === "running"
+            ? { ...item, status: "failed", stage: "应用关闭时中断", error: "任务未能在上次会话中完成" }
+            : item,
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -169,9 +199,69 @@ export function StoryboardScriptWorkspace({
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
+  const [taskHistory, setTaskHistory] = useState<StudioTaskRecord[]>(loadTaskHistory);
+  const [activeOperation, setActiveOperation] = useState<StudioTaskRecord | null>(null);
   const [syncing, setSyncing] = useState(false);
   const hostRef = useRef<SwHostApi | null>(null);
   const draftTimer = useRef<number | null>(null);
+  const cancelledTasks = useRef(new Set<string>());
+
+  const persistTaskHistory = useCallback((next: StudioTaskRecord[]) => {
+    setTaskHistory(next);
+    try {
+      localStorage.setItem(TASK_HISTORY_KEY, JSON.stringify(next.slice(0, 80)));
+    } catch {
+      // 忽略浏览器存储配额错误
+    }
+  }, []);
+
+  const beginTask = useCallback((kind: StudioTaskRecord["kind"], label: string) => {
+    const now = new Date().toISOString();
+    const task: StudioTaskRecord = {
+      id: `sw-task-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      kind,
+      label,
+      status: "running",
+      progress: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    persistTaskHistory([task, ...taskHistory.filter((item) => item.status !== "running")]);
+    setActiveOperation(task);
+    cancelledTasks.current.delete(task.id);
+    return task;
+  }, [persistTaskHistory, taskHistory]);
+
+  const updateTask = useCallback((id: string, patch: Partial<StudioTaskRecord>) => {
+    setTaskHistory((current) => {
+      const next = current.map((item) =>
+        item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item,
+      );
+      try {
+        localStorage.setItem(TASK_HISTORY_KEY, JSON.stringify(next.slice(0, 80)));
+      } catch {
+        // 忽略浏览器存储配额错误
+      }
+      const changed = next.find((item) => item.id === id);
+      if (changed) setActiveOperation((active) => (active?.id === id ? changed : active));
+      return next;
+    });
+  }, []);
+
+  const cancelCurrent = useCallback(() => {
+    if (!activeOperation) return;
+    cancelledTasks.current.add(activeOperation.id);
+    updateTask(activeOperation.id, { status: "cancelled", stage: "已取消", error: "用户取消了任务" });
+    setActiveOperation(null);
+    setGenerating(false);
+    setBatchBusy(null);
+    setBatchProgress(null);
+    setGenMap((current) => Object.fromEntries(Object.entries(current).map(([shotId, gen]) => [shotId, {
+      image: gen.image.status === "running" ? { ...gen.image, status: "error" as const, error: "任务已取消" } : gen.image,
+      video: gen.video.status === "running" ? { ...gen.video, status: "error" as const, error: "任务已取消" } : gen.video,
+    }])));
+    setBusyMessage("任务已取消；已停止后续排队镜头。正在进行的云端请求可能仍会在服务端完成，但结果不会再写入当前项目。");
+  }, [activeOperation, updateTask]);
 
   // 宿主初始化 + 中转站列表。
   useEffect(() => {
@@ -306,16 +396,18 @@ export function StoryboardScriptWorkspace({
   const canGenerate = useMemo(
     () =>
       !generating &&
+      !activeOperation &&
       hostReady &&
       Boolean(draft.story.trim()) &&
       Boolean(draft.providerId) &&
       Boolean(draft.model),
-    [generating, hostReady, draft.story, draft.providerId, draft.model],
+    [generating, activeOperation, hostReady, draft.story, draft.providerId, draft.model],
   );
 
   const generate = useCallback(async () => {
     const host = hostRef.current;
     if (!host || !canGenerate) return;
+    const task = beginTask("script", "生成分镜脚本");
     setGenerating(true);
     setBusyMessage("正在生成分镜脚本…");
     setError("");
@@ -332,6 +424,7 @@ export function StoryboardScriptWorkspace({
         system: buildStoryboardSystemPrompt(),
         user: buildStoryboardUserPrompt(input),
       });
+      if (cancelledTasks.current.has(task.id)) return;
       const { script: parsed, error: parseError } = parseStoryScript(result.text);
       if (parseError) throw new Error(parseError);
       setRawJson(result.text);
@@ -339,13 +432,17 @@ export function StoryboardScriptWorkspace({
       setShowJson(false);
       setGenMap({});
       setBusyMessage("");
+      updateTask(task.id, { status: "succeeded", progress: 100, stage: "已完成" });
     } catch (reason) {
+      if (cancelledTasks.current.has(task.id)) return;
       setError(errorText(reason));
       setBusyMessage("");
+      updateTask(task.id, { status: "failed", stage: "失败", error: errorText(reason) });
     } finally {
       setGenerating(false);
+      setActiveOperation((active) => (active?.id === task.id ? null : active));
     }
-  }, [canGenerate, draft]);
+  }, [canGenerate, draft, beginTask, updateTask]);
 
   // ---- 角色资产 ----
   const [charName, setCharName] = useState("");
@@ -431,14 +528,19 @@ export function StoryboardScriptWorkspace({
   }, [draft.characters]);
 
   const generateShot = useCallback(
-    async (shot: StoryboardShot, kind: "image" | "video") => {
+    async (shot: StoryboardShot, kind: "image" | "video", parentTaskId?: string) => {
       const host = hostRef.current;
       if (!host || !draft.providerId) return;
+      if (!parentTaskId && activeOperation) return;
+      const task = parentTaskId ? null : beginTask(kind, `第 ${shot.index + 1} 镜${kind === "image" ? "参考图" : "视频"}`);
+      const taskId = parentTaskId || task?.id;
+      if (cancelledTasks.current.has(taskId || "")) return;
       // 工作台项目归档：剧本项目以稳定 id 作为目录(单草稿=一个项目)。
       const storyboardSubdir = draft.projectId
         ? `剧本工作室/${String(draft.projectId).replace(/[^\w-]/g, "_")}`
         : undefined;
       updateGen(shot.id, kind, { status: "running", error: undefined });
+      if (taskId) updateTask(taskId, { progress: 8, stage: `正在生成第 ${shot.index + 1} 镜${kind === "image" ? "参考图" : "视频"}` });
       try {
         if (kind === "image") {
           const prompt = buildShotImagePrompt(shot, draft.characters);
@@ -451,6 +553,7 @@ export function StoryboardScriptWorkspace({
             // 工作台项目归档：剧本项目生成图写入输出根/剧本工作室/<标题>/。
             projectSubdir: storyboardSubdir,
           });
+          if (cancelledTasks.current.has(taskId || "")) return;
           appendGenItem(shot.id, kind, { path: result.outputPath, url: result.outputUrl });
         } else {
           const prompt = finalizeGenerationPrompt(
@@ -468,32 +571,45 @@ export function StoryboardScriptWorkspace({
             // 工作台项目归档：剧本项目生成视频写入输出根/剧本工作室/<标题>/。
             projectSubdir: storyboardSubdir,
           });
+          if (cancelledTasks.current.has(taskId || "")) return;
           appendGenItem(shot.id, kind, { path: result.outputPath, url: result.outputUrl });
         }
+        if (taskId && !parentTaskId) updateTask(taskId, { status: "succeeded", progress: 100, stage: "已完成" });
       } catch (reason) {
+        if (cancelledTasks.current.has(taskId || "")) return;
         updateGen(shot.id, kind, { status: "error", error: errorText(reason) });
+        if (taskId && !parentTaskId) updateTask(taskId, { status: "failed", stage: "失败", error: errorText(reason) });
+      } finally {
+        if (taskId && !parentTaskId) setActiveOperation((active) => active?.id === taskId ? null : active);
       }
     },
-    [draft, updateGen, appendGenItem, referencesFor],
+    [draft, activeOperation, updateGen, appendGenItem, referencesFor, beginTask, updateTask],
   );
 
   const runBatch = useCallback(
     async (kind: "image" | "video") => {
-      if (!script || batchBusy) return;
+      if (!script || batchBusy || activeOperation) return;
+      const task = beginTask(`batch-${kind}`, `批量生成${kind === "image" ? "参考图" : "视频"}`);
       setBatchBusy(kind);
       setBatchProgress({ done: 0, total: script.shots.length });
       setError("");
       try {
         for (const [index, shot] of script.shots.entries()) {
-          await generateShot(shot, kind);
+          if (cancelledTasks.current.has(task.id)) break;
+          await generateShot(shot, kind, task.id);
           setBatchProgress({ done: index + 1, total: script.shots.length });
+          updateTask(task.id, { progress: Math.round(((index + 1) / script.shots.length) * 100), stage: `已完成 ${index + 1}/${script.shots.length} 镜` });
         }
+        updateTask(task.id, cancelledTasks.current.has(task.id) ? { status: "cancelled", stage: "已取消" } : { status: "succeeded", progress: 100, stage: "已完成" });
+      } catch (reason) {
+        updateTask(task.id, { status: "failed", stage: "失败", error: errorText(reason) });
       } finally {
         setBatchBusy(null);
         setBatchProgress(null);
+        setActiveOperation((active) => active?.id === task.id ? null : active);
       }
     },
-    [script, batchBusy, generateShot],
+    [script, batchBusy, activeOperation, generateShot, beginTask, updateTask],
   );
 
   const patchShot = useCallback((index: number, patch: Partial<StoryboardShot>) => {
@@ -531,13 +647,19 @@ export function StoryboardScriptWorkspace({
       const name = `${script.title?.trim() || "分镜脚本"}-${new Date()
         .toISOString()
         .slice(0, 10)}.txt`;
-      const result = await host.saveText({ name, content: scriptToPlainText(script) });
+      const result = await host.saveText({
+        name,
+        content: scriptToPlainText(script),
+        projectSubdir: draft.projectId
+          ? `剧本工作室/${String(draft.projectId).replace(/[^\w-]/g, "_")}`
+          : undefined,
+      });
       setBusyMessage(`已导出:${result.path}`);
     } catch (reason) {
       setError(errorText(reason));
       setBusyMessage("");
     }
-  }, [script]);
+  }, [script, draft.projectId]);
 
   const openResult = useCallback(
     async (path: string) => {
@@ -613,6 +735,14 @@ export function StoryboardScriptWorkspace({
           <span className="sw-subtitle">文案 → 分镜脚本 → 角色资产 → 分镜批量生成</span>
         </div>
         <div className="sw-actions">
+          {activeOperation && (
+            <div className="sw-task-indicator" title={activeOperation.stage || activeOperation.label}>
+              <span className="sw-task-spinner" />
+              <span>{activeOperation.label}</span>
+              <strong>{activeOperation.progress}%</strong>
+              <button type="button" className="sw-btn sw-btn-danger" onClick={cancelCurrent}>取消任务</button>
+            </div>
+          )}
           <button
             type="button"
             className="sw-btn sw-btn-primary"
@@ -800,6 +930,30 @@ export function StoryboardScriptWorkspace({
         {error && <p className="sw-error">{error}</p>}
       </section>
 
+      <section className="sw-task-panel">
+        <div className="sw-task-panel-head">
+          <div>
+            <h2>任务记录</h2>
+            <span className="sw-hint">自动保存在本机，刷新或切换工作室后仍可查看</span>
+          </div>
+          {taskHistory.length > 0 && (
+            <button type="button" className="sw-btn sw-btn-quiet" onClick={() => persistTaskHistory([])}>清空记录</button>
+          )}
+        </div>
+        <div className="sw-task-list">
+          {taskHistory.slice(0, 8).map((task) => (
+            <div className={`sw-task-row status-${task.status}`} key={task.id}>
+              <span className="sw-task-state">{task.status === "running" ? "进行中" : task.status === "succeeded" ? "已完成" : task.status === "failed" ? "失败" : task.status === "cancelled" ? "已取消" : "排队中"}</span>
+              <strong>{task.label}</strong>
+              <span className="sw-task-stage">{task.stage || (task.status === "running" ? `${task.progress}%` : "")}</span>
+              <time>{new Date(task.updatedAt).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
+              {task.error && <span className="sw-task-error" title={task.error}>{task.error}</span>}
+            </div>
+          ))}
+          {taskHistory.length === 0 && <p className="sw-hint">还没有任务，生成脚本或镜头后会显示在这里。</p>}
+        </div>
+      </section>
+
       <section className="sw-chars">
         <div className="sw-chars-head">
           <h2>角色资产</h2>
@@ -864,6 +1018,13 @@ export function StoryboardScriptWorkspace({
                     <span className="sw-shot-meta">
                       {shot.sceneLabel ? `[${shot.sceneLabel}] ` : ""}
                       {shot.durationSec}s
+                    </span>
+                    <span className="sw-shot-status">
+                      {gen.image.status === "running" || gen.video.status === "running"
+                        ? "生成中"
+                        : gen.image.items.length || gen.video.items.length
+                          ? "已有结果"
+                          : "待生成"}
                     </span>
                     <button
                       type="button"
@@ -981,6 +1142,9 @@ export function StoryboardScriptWorkspace({
                       <span className="sw-error">{gen.video.error}</span>
                     )}
                   </div>
+                  {(gen.image.status === "running" || gen.video.status === "running") && (
+                    <div className="sw-shot-progress" aria-label="镜头生成中"><span /></div>
+                  )}
                   {(gen.image.items.length > 0 || gen.video.items.length > 0) && (
                     <div className="sw-results">
                       {gen.image.items.map((item, itemIndex) => (

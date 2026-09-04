@@ -168,6 +168,7 @@ function saveWorkspaceSettings(input) {
   const outputDir2 = node_path.resolve(input.outputDir.trim());
   if (!node_fs.existsSync(modelsDir)) throw new Error("所选模型文件夹不存在");
   node_fs.mkdirSync(outputDir2, { recursive: true });
+  ensureOutputDirectoryStructure(outputDir2);
   const comfyuiDir =
     typeof input.comfyuiDir === "string" && input.comfyuiDir.trim()
       ? node_path.resolve(input.comfyuiDir.trim())
@@ -204,6 +205,21 @@ function configuredModelsDir() {
 }
 function configuredOutputDir() {
   return getWorkspaceSettings().outputDir;
+}
+/** 初始化统一输出目录结构。所有用户可见资源均归档在设置的输出根目录下。 */
+function ensureOutputDirectoryStructure(root = configuredOutputDir()) {
+  const outputRoot = String(root || "").trim();
+  if (!outputRoot) return;
+  for (const relative of [
+    "替换工作室",
+    "剧本工作室",
+    "生成资产",
+    "生成资产/图像",
+    "生成资产/视频",
+    "生成资产/音频",
+  ]) {
+    node_fs.mkdirSync(node_path.join(outputRoot, relative), { recursive: true });
+  }
 }
 const PORT$2 = 8190;
 const LOCAL_HOST = `http://127.0.0.1:${PORT$2}`;
@@ -393,6 +409,7 @@ function outputDir() {
     configuredOutputDir() ||
     node_path.join(electron.app.getPath("userData"), "outputs");
   node_fs.mkdirSync(dir, { recursive: true });
+  ensureOutputDirectoryStructure(dir);
   return dir;
 }
 async function downloadRemoteOutput(filename, subfolder, type = "output") {
@@ -5016,8 +5033,8 @@ async function saveImageOutput(extracted, request) {
   // 项目分级浏览(每个项目目录只含本项目资源)。缺省保持原 CloudImages/<date>。
   const projectSubdir = String(request.projectSubdir || "").trim();
   const directory = projectSubdir
-    ? node_path.join(outputRoot, projectSubdir)
-    : node_path.join(outputRoot, "CloudImages", date);
+    ? node_path.join(outputRoot, projectSubdir, "图像")
+    : node_path.join(outputRoot, "生成资产", "图像", date);
   await promises.mkdir(directory, { recursive: true });
   const target = node_path.join(
     directory,
@@ -5147,10 +5164,11 @@ async function saveVideoOutput(url, request) {
   // 工作台项目归档：见 saveImageOutput 的同名说明。
   const projectSubdir = String(request.projectSubdir || "").trim();
   const directory = projectSubdir
-    ? node_path.join(outputRoot, projectSubdir)
+    ? node_path.join(outputRoot, projectSubdir, "视频")
     : node_path.join(
         outputRoot,
-        "CloudVideos",
+        "生成资产",
+        "视频",
         /* @__PURE__ */ new Date().toISOString().slice(0, 10),
       );
   node_fs.mkdirSync(directory, { recursive: true });
@@ -5366,10 +5384,11 @@ async function saveAudioOutput(buffer, request, extension) {
   // 工作台项目归档：见 saveImageOutput 的同名说明。
   const projectSubdir = String(request.projectSubdir || "").trim();
   const directory = projectSubdir
-    ? node_path.join(outputRoot, projectSubdir)
+    ? node_path.join(outputRoot, projectSubdir, "音频")
     : node_path.join(
         outputRoot,
-        "CloudAudio",
+        "生成资产",
+        "音频",
         /* @__PURE__ */ new Date().toISOString().slice(0, 10),
       );
   await promises.mkdir(directory, { recursive: true });
@@ -14010,11 +14029,13 @@ function registerSerpentIpc() {
  * 项目持久化位于 <userData>/serpent/replacement-studio。
  */
 function replacementStudioDir() {
-  return node_path.join(
-    electron.app.getPath("userData"),
-    "serpent",
-    "replacement-studio",
-  );
+  const root = configuredOutputDir();
+  return root
+    ? node_path.join(root, "替换工作室", ".studio")
+    : node_path.join(electron.app.getPath("userData"), "serpent", "replacement-studio");
+}
+function legacyReplacementStudioDir() {
+  return node_path.join(electron.app.getPath("userData"), "serpent", "replacement-studio");
 }
 function replacementStudioIndexFile() {
   return node_path.join(replacementStudioDir(), "projects.json");
@@ -14023,15 +14044,24 @@ function replacementStudioProjectFile(id) {
   const safe = String(id || "").replace(/[^\w-]/g, "_");
   return node_path.join(replacementStudioDir(), `${safe}.json`);
 }
+function replacementStudioProjectReadFile(id) {
+  const primary = replacementStudioProjectFile(id);
+  if (node_fs.existsSync(primary)) return primary;
+  const safe = String(id || "").replace(/[^\w-]/g, "_");
+  const legacy = node_path.join(legacyReplacementStudioDir(), `${safe}.json`);
+  return node_fs.existsSync(legacy) ? legacy : primary;
+}
 function replacementStudioReadIndex() {
-  try {
-    const parsed = JSON.parse(
-      node_fs.readFileSync(replacementStudioIndexFile(), "utf8"),
-    );
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+  for (const file of [
+    replacementStudioIndexFile(),
+    node_path.join(legacyReplacementStudioDir(), "projects.json"),
+  ]) {
+    try {
+      const parsed = JSON.parse(node_fs.readFileSync(file, "utf8"));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
   }
+  return [];
 }
 function replacementStudioWriteIndex(list) {
   node_fs.mkdirSync(replacementStudioDir(), { recursive: true });
@@ -14046,11 +14076,12 @@ function replacementStudioWriteIndex(list) {
  * 工作台资源树(供给 Serpent 侧栏「工作台资源」分级)。每个工作室是一个分级,
  * 其下是按项目划分的资源目录。路径与云端生成一致:
  *   输出根/<工作室>/<项目id>/
- * 只返回真实存在项目元数据的工作室(替换工作室来自 projects.json)。后续
- * 剧本工作室等可在此追加。
+ * 只返回真实存在项目元数据的工作室；替换工作室来自 projects.json，
+ * 剧本工作室来自 workspace.json。
  */
 function workbenchResourceTree() {
   const outputRoot = configuredOutputDir() || outputDir();
+  ensureOutputDirectoryStructure(outputRoot);
   const studios = [];
   const storedProjects = replacementStudioReadIndex();
   const existingProjects = [];
@@ -14085,6 +14116,37 @@ function workbenchResourceTree() {
     slug: "replacement-studio",
     projects: rsProjects,
   });
+  // 剧本工作室的项目索引保存在 workspace.json，而不是替换工作室共用的
+  // projects.json。这里在主进程统一读取，避免资源管理依赖 renderer
+  // localStorage，导致刷新/跨窗口时项目树延迟或缺失。
+  const storyProjects = [];
+  try {
+    const workspaceFile = storyboardWorkspaceReadFile();
+    const workspace = JSON.parse(node_fs.readFileSync(workspaceFile, "utf8"));
+    const candidates = [
+      ...(Array.isArray(workspace?.projects) ? workspace.projects : []),
+      ...(workspace?.currentData?.project ? [workspace.currentData.project] : []),
+    ];
+    const seen = new Set();
+    for (const entry of candidates) {
+      const project = entry?.data?.project || entry;
+      const id = String(project?.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const dir = node_path.join(outputRoot, "剧本工作室", id);
+      if (!node_fs.existsSync(dir)) continue;
+      storyProjects.push({
+        id,
+        title: String(project?.title || "未命名剧本项目"),
+        dir,
+      });
+    }
+  } catch {}
+  studios.push({
+    studio: "剧本工作室",
+    slug: "storyboard-script",
+    projects: storyProjects,
+  });
   return studios;
 }
 
@@ -14110,6 +14172,11 @@ function workbenchEnsureProjectDir(subdir) {
   }
   try {
     node_fs.mkdirSync(resolved, { recursive: true });
+    if (/^(?:替换工作室|剧本工作室)\/[^/]+$/.test(safe)) {
+      for (const media of ["图像", "视频", "音频"]) {
+        node_fs.mkdirSync(node_path.join(resolved, media), { recursive: true });
+      }
+    }
     return { ok: true, dir: resolved };
   } catch (error) {
     return { ok: false, error: String((error && error.message) || error) };
@@ -14145,8 +14212,8 @@ async function registerReplacementStudioIpc() {
       for (const meta of replacementStudioReadIndex()) {
         try {
           const project = JSON.parse(
-            node_fs.readFileSync(
-              replacementStudioProjectFile(meta.id),
+              node_fs.readFileSync(
+              replacementStudioProjectReadFile(meta.id),
               "utf8",
             ),
           );
@@ -14180,6 +14247,10 @@ async function registerReplacementStudioIpc() {
         );
         for (const project of validProjects) {
           const meta = replacementStudioMeta(project);
+          const projectDirResult = workbenchEnsureProjectDir(`替换工作室/${meta.id}`);
+          const projectDir = projectDirResult?.dir || node_path.join(configuredOutputDir() || outputDir(), "替换工作室", meta.id);
+          node_fs.mkdirSync(projectDir, { recursive: true });
+          node_fs.writeFileSync(node_path.join(projectDir, "project.json"), JSON.stringify(project, null, 2), "utf8");
           node_fs.writeFileSync(
             replacementStudioProjectFile(meta.id),
             JSON.stringify(project, null, 2),
@@ -14624,20 +14695,32 @@ async function registerReplacementStudioIpc() {
  * shared/storyboard-script 负责解析,主进程只做「中转站 chat 完成」+ 文本落盘。
  */
 function storyboardDir() {
-  return node_path.join(
-    electron.app.getPath("userData"),
-    "serpent",
-    "storyboard-script",
-  );
+  const root = configuredOutputDir();
+  return root
+    ? node_path.join(root, "剧本工作室", ".studio")
+    : node_path.join(electron.app.getPath("userData"), "serpent", "storyboard-script");
+}
+function legacyStoryboardDir() {
+  return node_path.join(electron.app.getPath("userData"), "serpent", "storyboard-script");
 }
 function storyboardWorkspaceFile() {
   return node_path.join(storyboardDir(), "workspace.json");
+}
+function storyboardWorkspaceReadFile() {
+  const primary = storyboardWorkspaceFile();
+  if (node_fs.existsSync(primary)) return primary;
+  const legacy = node_path.join(legacyStoryboardDir(), "workspace.json");
+  return node_fs.existsSync(legacy) ? legacy : primary;
+}
+function storyboardProjectDir(id) {
+  const safe = String(id || "").replace(/[^\w-]/g, "_");
+  return node_path.join(configuredOutputDir() || outputDir(), "剧本工作室", safe);
 }
 async function registerStoryWorkflowIpc() {
   const handlers = {
     "sw:load-workspace": async () => {
       try {
-        return JSON.parse(node_fs.readFileSync(storyboardWorkspaceFile(), "utf8"));
+        return JSON.parse(node_fs.readFileSync(storyboardWorkspaceReadFile(), "utf8"));
       } catch (error) {
         if (error?.code === "ENOENT") return null;
         console.warn("[storyboard-script] 工作区存档读取失败", error);
@@ -14651,6 +14734,30 @@ async function registerStoryWorkflowIpc() {
       const file = storyboardWorkspaceFile();
       const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
       node_fs.mkdirSync(storyboardDir(), { recursive: true });
+      const persistedProjects = Array.isArray(workspace.projects)
+        ? workspace.projects
+        : workspace.currentData?.project
+          ? [{ data: workspace.currentData }]
+          : [];
+      for (const entry of persistedProjects) {
+        const project = entry?.data?.project || entry?.project || entry?.data;
+        if (!project?.id) continue;
+        const dir = storyboardProjectDir(project.id);
+        node_fs.mkdirSync(dir, { recursive: true });
+        node_fs.writeFileSync(node_path.join(dir, "project.json"), JSON.stringify(project, null, 2), "utf8");
+        const sourceText = [
+          project.scriptText,
+          project.compiledScript,
+          project.plotScript,
+          project.narrationScript,
+          project.sourceDocument?.text,
+        ].find((value) => typeof value === "string" && value.trim());
+        if (sourceText) node_fs.writeFileSync(node_path.join(dir, "剧本.txt"), sourceText, "utf8");
+        if (typeof project.summary === "string" && project.summary.trim()) {
+          node_fs.writeFileSync(node_path.join(dir, "剧本摘要.txt"), project.summary, "utf8");
+        }
+        workbenchEnsureProjectDir(`剧本工作室/${String(project.id).replace(/[^\w-]/g, "_")}`);
+      }
       node_fs.writeFileSync(temp, JSON.stringify(workspace), "utf8");
       node_fs.renameSync(temp, file);
       return { ok: true };
@@ -14682,8 +14789,10 @@ async function registerStoryWorkflowIpc() {
     "sw:save-text": async (request) => {
       if (!request || typeof request.content !== "string" || !request.content.trim())
         throw new Error("没有可保存的内容");
-      const dir = outputDir() && node_fs.existsSync(outputDir())
-        ? outputDir()
+      const outputRoot = configuredOutputDir();
+      const projectSubdir = String(request.projectSubdir || "").trim();
+      const dir = outputRoot
+        ? node_path.join(outputRoot, projectSubdir || "剧本工作室")
         : storyboardDir();
       node_fs.mkdirSync(dir, { recursive: true });
       const name = String(request.name || "分镜脚本.txt").replace(/[\\/:*?"<>|]/g, "_");
@@ -14723,7 +14832,7 @@ async function registerMediaToolIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       return splitImages({
         files: [request.file],
         rows,
@@ -14744,7 +14853,7 @@ async function registerMediaToolIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       return stitchImages({
         first: request.first,
         second: request.second,
@@ -14763,7 +14872,7 @@ async function registerMediaToolIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       return saveCanvasAnnotation({
         dataUrl: request.dataUrl,
         sourceName: String(request.sourceName || "annotation"),
@@ -14781,7 +14890,7 @@ async function registerMediaToolIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       const format = ["png", "jpg", "webp"].includes(request.format)
         ? request.format
         : "png";
@@ -14869,7 +14978,7 @@ async function registerVoiceStudioIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       node_fs.mkdirSync(dir, { recursive: true });
       const target = uniqueOutput(dir, `${safeBase(request.file)}_audio.wav`);
       const run = await rsRunFfmpeg(rsFfmpeg(), [
@@ -14977,7 +15086,7 @@ async function registerVoiceStudioIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       node_fs.mkdirSync(dir, { recursive: true });
       const mixMode =
         request.mixMode === "keep-original" ? "keep-original" : "dub-all";
@@ -15072,7 +15181,7 @@ async function registerPipelineIpc() {
         ? String(request.outputDir)
         : outputDir() && node_fs.existsSync(outputDir())
           ? outputDir()
-          : storyboardDir();
+          : node_path.join(outputDir(), "生成资产");
       node_fs.mkdirSync(dir, { recursive: true });
       const videoCodec = String(request.videoCodec || "copy");
       const audioBitrate = String(request.audioBitrate || "192k");

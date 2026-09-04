@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import "./legacy-story-studio.css";
 import { ensureSwHostApi } from "../storyboard-script/host";
 import { syncHostedProviderModelCatalog } from "../shuocanvas-legacy/src/modules/hostedProviderModelCatalog.js";
+import { STORY_PROJECTS_STORAGE_KEY } from "./story-studio-data";
+
+const STORY_WORKSPACE_LOCAL_CACHE_KEY = "story-workspace:session-cache:v1";
 
 type LegacyStoryStudioWorkspaceProps = {
   onExit: () => void;
@@ -102,6 +105,29 @@ export function LegacyStoryStudioWorkspace({
           user: payload?.prompt || payload?.user || "",
         });
       };
+      const syncWorkbenchProjectIndex = async (snapshot: any) => {
+        const projects = Array.isArray(snapshot?.projects)
+          ? snapshot.projects
+          : snapshot?.currentData?.project
+            ? [{ data: snapshot.currentData }]
+            : [];
+        const entries = projects
+          .map((item: any) => item?.data?.project || item?.project || item?.data)
+          .filter((project: any) => project?.id)
+          .map((project: any) => ({ id: String(project.id), title: String(project.title || "剧本项目") }));
+        if (!entries.length) return;
+        try {
+          window.localStorage.setItem(STORY_PROJECTS_STORAGE_KEY, JSON.stringify(entries));
+          window.dispatchEvent(new Event("story-projects-changed"));
+        } catch {
+          // 资源树索引失败不影响工作区存档。
+        }
+        // 项目存档和资源目录是两个独立持久化通道。恢复工作区时也要
+        // 补建目录，避免“剧本工作室有项目但资源管理没有项目文件夹”。
+        await Promise.all(entries.map((project) =>
+          host.ensureWorkbenchProjectDir(`剧本工作室/${project.id}`).catch(() => ({ ok: false })),
+        ));
+      };
       const generateStory = (request: any) => storyApi.generateStoryDraft({ ...request, request: requestText });
       const generateEpisodeScript = (request: any) => storyApi.generateStoryEpisodeScript({ ...request, request: requestText });
       const extractAssets = (request: any) => storyApi.extractStoryAssets({ ...request, request: requestText });
@@ -118,10 +144,73 @@ export function LegacyStoryStudioWorkspace({
         extractAssets,
         planEpisodes,
         splitEpisode: splitEpisode,
+        // 工作区切换会销毁并重新挂载该适配层；接入宿主存档后，项目、
+        // 当前步骤及剧本摘要生成结果可以跨视图恢复，而不会回到创建页。
+        loadWorkspace: async () => {
+          // 宿主磁盘存档是长期数据源；本地缓存仅作为 IPC 写入窗口或宿主
+          // 暂时不可用时的兜底，避免旧缓存覆盖较新的磁盘存档。
+          try {
+            const persisted = await host.loadWorkspace();
+            if (persisted && typeof persisted === "object") {
+              await syncWorkbenchProjectIndex(persisted);
+              return persisted;
+            }
+          } catch {
+            // 继续尝试本地即时缓存。
+          }
+          try {
+            const cached = window.localStorage.getItem(STORY_WORKSPACE_LOCAL_CACHE_KEY);
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (parsed?.schemaVersion === 1 && parsed?.currentData?.project) {
+                await syncWorkbenchProjectIndex(parsed);
+                return parsed;
+              }
+            }
+          } catch {
+            // 继续尝试宿主磁盘存档。
+          }
+          return host.loadWorkspace();
+        },
+        saveWorkspace: async (snapshot: unknown) => {
+          const rawSnapshot = snapshot as any;
+          const persistedProjects = Array.isArray(rawSnapshot?.projects)
+            ? rawSnapshot.projects
+            : rawSnapshot?.currentData?.project
+              ? [{ data: rawSnapshot.currentData }]
+              : [];
+          const projectEntries = persistedProjects
+            .map((item: any) => item?.data?.project || item?.project || item?.data)
+            .filter((project: any) => project?.id)
+            .map((project: any) => ({
+              id: String(project.id),
+              title: String(project.title || "剧本项目"),
+            }));
+          try {
+            window.localStorage.setItem(STORY_PROJECTS_STORAGE_KEY, JSON.stringify(projectEntries));
+          } catch {
+            // 工作区磁盘存档仍会继续保存。
+          }
+          await Promise.all(projectEntries.map((project) =>
+            host.ensureWorkbenchProjectDir(`剧本工作室/${project.id}`).catch(() => ({ ok: false })),
+          ));
+          try {
+            window.localStorage.setItem(STORY_WORKSPACE_LOCAL_CACHE_KEY, JSON.stringify(snapshot));
+          } catch {
+            // 宿主磁盘存档仍会继续保存。
+          }
+          const result = await host.saveWorkspace(snapshot);
+          // 主进程磁盘存档成功后再刷新工作台资源树，避免事件先于
+          // workspace.json 写入而读到旧项目列表，造成资源管理滞后。
+          window.dispatchEvent(new Event("story-projects-changed"));
+          return result;
+        },
         requestWorkspaceMode: (mode: string) => {
           if (mode !== "story") exitRef.current();
           return true;
         },
+        ensureProjectDirectory: (projectId: string) =>
+          host.ensureWorkbenchProjectDir(`剧本工作室/${projectId}`),
       });
       api?.activate?.({ previousMode: "canvas" });
     };

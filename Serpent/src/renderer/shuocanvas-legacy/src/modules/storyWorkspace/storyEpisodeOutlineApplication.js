@@ -207,6 +207,7 @@ export function createStoryEpisodeOutlineApplication({
   }
   async function _0x4b57dd({
     project = {},
+    assets = [],
     constraints = {},
     execution = {},
     regenerationMode = "preserve",
@@ -243,6 +244,7 @@ export function createStoryEpisodeOutlineApplication({
     try {
       const _0x5e77fc = await _0x24c766({
         project: project,
+        assets: Array.isArray(assets) ? assets : [],
         constraints: constraints,
         model: _0x23fca4.input.execution.modelId,
         provider: _0x23fca4.input.execution.provider,
@@ -408,6 +410,7 @@ export function createStoryEpisodeOutlineWorkspaceController({
     try {
       const _0xcdbe8b = await _0xf2ae97.execute({
         project: _0x19f2f0.project,
+        assets: _0x19f2f0.assets,
         constraints: _0x19f2f0.project.planning,
         execution: _0x2ad76f,
         regenerationMode: _0x40f605,

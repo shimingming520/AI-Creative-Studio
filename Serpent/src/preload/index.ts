@@ -2983,6 +2983,8 @@ const HOST_INVOKE_CHANNELS = new Set([
   // 剧本工作室(阶段1:分镜脚本生成)
   'sw:generate-script',
   'sw:save-text',
+  'sw:load-workspace',
+  'sw:save-workspace',
   'sw:open-replacement-studio',
   // 媒体工具(宫格/拼图/白板导出)
   'mt:split-grid',
@@ -3118,6 +3120,8 @@ const host = Object.freeze({
   sw: Object.freeze({
     generateScript: (request: unknown) => hostInvoke('sw:generate-script', request),
     saveText: (request: unknown) => hostInvoke('sw:save-text', request),
+    loadWorkspace: () => hostInvoke('sw:load-workspace'),
+    saveWorkspace: (snapshot: unknown) => hostInvoke('sw:save-workspace', snapshot),
   }),
 
   // --- 剧本工作室 → 替换工作室 联动 ---

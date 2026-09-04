@@ -80,6 +80,70 @@ describe('Linked folders schema migration', () => {
 });
 
 describe('Linked folder import', () => {
+  it('publishes an asset.changed event immediately after importing the folder', () => {
+    const root = temporaryRoot();
+    const sourceRoot = path.join(root, 'source');
+    mkdirSync(sourceRoot);
+    writeFileSync(path.join(sourceRoot, 'a.png'), 'aaa');
+    writeFileSync(path.join(sourceRoot, 'b.png'), 'bbbb');
+
+    const events: Array<Record<string, unknown>> = [];
+    const service = newService({
+      onAssetsChanged: (event) => events.push(event),
+    });
+    const created = service.createLibrary({ displayName: 'Linked', selectedParentPath: root });
+
+    service.importFolderAsLinked({
+      libraryId: created.libraryId,
+      sourceRootPath: sourceRoot,
+    });
+
+    expect(events).toContainEqual({
+      type: 'asset.changed',
+      libraryId: created.libraryId,
+      changedCount: 2,
+      missingCount: 0,
+      source: 'client',
+    });
+    service.closeAll();
+  });
+
+  it('publishes an asset.changed event immediately after relinking a folder', () => {
+    const root = temporaryRoot();
+    const sourceRoot = path.join(root, 'source');
+    const relocatedRoot = path.join(root, 'relocated');
+    mkdirSync(sourceRoot);
+    mkdirSync(relocatedRoot);
+    writeFileSync(path.join(sourceRoot, 'a.png'), 'aaa');
+    writeFileSync(path.join(relocatedRoot, 'a.png'), 'restored');
+
+    const events: Array<Record<string, unknown>> = [];
+    const service = newService({
+      onAssetsChanged: (event) => events.push(event),
+    });
+    const created = service.createLibrary({ displayName: 'Linked', selectedParentPath: root });
+    const linked = service.importFolderAsLinked({
+      libraryId: created.libraryId,
+      sourceRootPath: sourceRoot,
+    });
+    events.length = 0;
+
+    service.relinkMissingFolder({
+      libraryId: created.libraryId,
+      folderId: linked.folderId,
+      newRootPath: relocatedRoot,
+    });
+
+    expect(events).toEqual([{
+      type: 'asset.changed',
+      libraryId: created.libraryId,
+      changedCount: 1,
+      missingCount: 0,
+      source: 'client',
+    }]);
+    service.closeAll();
+  });
+
   it('imports a linked folder and registers its files as linked assets', () => {
     const root = temporaryRoot();
     const sourceRoot = path.join(root, 'source');

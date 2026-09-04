@@ -390,14 +390,22 @@ function storyboardWorkbenchGroup(
   };
   try {
     const raw = localStorage.getItem(STORY_PROJECTS_STORAGE_KEY);
-    if (!raw) return studio;
-    const parsed = JSON.parse(raw) as Array<{ id?: string; title?: string }>;
+    const cacheRaw = localStorage.getItem("story-workspace:session-cache:v1");
+    let parsed: unknown = raw ? JSON.parse(raw) : [];
+    if ((!Array.isArray(parsed) || parsed.length === 0) && cacheRaw) {
+      const cached = JSON.parse(cacheRaw) as any;
+      const current = cached?.currentData?.project;
+      parsed = Array.isArray(cached?.projects) && cached.projects.length
+        ? cached.projects
+        : current ? [{ id: current.id, title: current.title }] : [];
+    }
     const list = Array.isArray(parsed) ? parsed : [];
     const projects = list
       .filter((p) => Boolean(p && p.id))
       .map((p) => {
-        const id = String(p.id);
-        const title = String((p.title || "").trim() || "剧本项目");
+        const source = (p as any)?.data?.project || p as any;
+        const id = String(source.id);
+        const title = String((source.title || "").trim() || "剧本项目");
         return { id, title, dir: `${base}/剧本工作室/${id}` };
       });
     if (projects.length > 0) studio.projects = projects;
@@ -3345,15 +3353,27 @@ function AppInner() {
       }
     ).serpent?.host;
     if (!host || typeof host.workbenchTree !== "function") return;
+    const workbenchTree = host.workbenchTree;
     let cancelled = false;
-    void host
-      .workbenchTree()
+    const refreshWorkbenchTree = () => {
+      void workbenchTree()
       .then((tree) => {
         if (cancelled) return;
-        const mains = Array.isArray(tree) ? tree : [];
-        const storyboard = generatedAssetsRoot
-          ? storyboardWorkbenchGroup(generatedAssetsRoot)
-          : null;
+        // 剧本项目现在由主进程从 workspace.json 提供；仅在旧版本主进程
+        // 未提供该分级时才回退到 renderer 缓存，避免重复/不一致的项目树。
+        const rawMains = Array.isArray(tree) ? tree : [];
+        const hasMainStoryboard = rawMains.some(
+          (group) => group?.slug === "storyboard-script" &&
+            Array.isArray(group?.projects) && group.projects.length > 0,
+        );
+        const mains = hasMainStoryboard
+          ? rawMains
+          : rawMains.filter((group) => group?.slug !== "storyboard-script");
+        const storyboard = hasMainStoryboard
+          ? null
+          : generatedAssetsRoot
+            ? storyboardWorkbenchGroup(generatedAssetsRoot)
+            : null;
         setWorkbenchResourceTree(
           storyboard ? [...mains, storyboard] : mains,
         );
@@ -3361,8 +3381,14 @@ function AppInner() {
       .catch(() => {
         if (!cancelled) setWorkbenchResourceTree(null);
       });
+    };
+    refreshWorkbenchTree();
+    window.addEventListener("story-projects-changed", refreshWorkbenchTree);
+    window.addEventListener("storage", refreshWorkbenchTree);
     return () => {
       cancelled = true;
+      window.removeEventListener("story-projects-changed", refreshWorkbenchTree);
+      window.removeEventListener("storage", refreshWorkbenchTree);
     };
   }, [library?.libraryId, generatedAssetsRoot, linkedFolders, activeStudioView]);
 

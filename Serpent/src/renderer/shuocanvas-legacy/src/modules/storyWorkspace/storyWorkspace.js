@@ -7349,6 +7349,7 @@ export function initStoryWorkspace({
     });
     return {
       project: _0x396255,
+      assets: Array.isArray(_0x4162fa?.assets) ? _0x4162fa.assets : [],
       model: _0x20bd07.models?.text || _0x3ffeb1.models.text,
       provider: _0x411e27,
       providerProfileId: resolveStoryTextProviderProfileId(_0x411e27, _0x20bd07.textProviderProfileId || _0x3ffeb1.textProviderProfileId),

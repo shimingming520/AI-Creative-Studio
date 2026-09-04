@@ -2217,9 +2217,7 @@ export function buildStoryEpisodePlanningPrompt({
   const _0x42af44 = normalizeStoryProjectInput(project);
   assertStoryProjectInput(_0x42af44);
   const _0x51edbc = Array.isArray(assets) ? assets.map(normalizePlanningAssetSummary).filter(_0x2f424b => _0x2f424b.name) : [];
-  if (!_0x51edbc.length) {
-    throw new Error("请先提取并确认角色、场景与道具资产。");
-  }
+  // 资产设定在分集大纲之后执行；空资产列表是合法的初始状态。
   const _0x33ef57 = resolveStoryPlanningConstraints(project, constraints);
   const _0x23ac95 = _0x33ef57.episodeCount;
   const _0x4866dc = Math.max(1, Math.ceil(_0x23ac95 * 0.9));
@@ -2310,9 +2308,7 @@ export async function planStoryEpisodes({
   const _0x16e04a = normalizeStoryProjectInput(project);
   assertStoryProjectInput(_0x16e04a);
   const _0x40e1e5 = Array.isArray(assets) ? assets.map(normalizePlanningAssetSummary).filter(_0x2eadd1 => _0x2eadd1.name) : [];
-  if (!_0x40e1e5.length) {
-    throw new Error("请先提取并确认角色、场景与道具资产。");
-  }
+  // 资产设定在分集大纲之后执行；空资产列表是合法的初始状态。
   const _0xdd7886 = resolveStoryPlanningConstraints(project, constraints);
   onProgress?.({
     stage: "planning-episodes",

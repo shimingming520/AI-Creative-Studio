@@ -680,7 +680,11 @@ export function StoryStudioWorkspace({
     setError("");
     try {
       const name = `${currentProject.title || "分镜表"}-${new Date().toISOString().slice(0, 10)}.txt`;
-      const result = await api.saveText({ name, content: storyboardToText(currentProject) });
+      const result = await api.saveText({
+        name,
+        content: storyboardToText(currentProject),
+        projectSubdir: `剧本工作室/${currentProject.id}`,
+      });
       setBusyMessage(`已导出：${result.path}`);
     } catch (reason) {
       setError(errorText(reason));

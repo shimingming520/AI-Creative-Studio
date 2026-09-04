@@ -90,7 +90,10 @@ export interface SwHostApi {
   /** 调 YUH 中转站 chat 完成,返回原始文本(分镜 JSON 由前端解析)。 */
   generateScript(request: SwGenerateRequest): Promise<SwGenerateResult>;
   /** 写入输出目录下的 .txt 分镜表(UTF-8)。 */
-  saveText(request: { name: string; content: string }): Promise<{ path: string }>;
+  saveText(request: { name: string; content: string; projectSubdir?: string }): Promise<{ path: string }>;
+  /** 读取/保存剧本工作室完整工作区存档。 */
+  loadWorkspace(): Promise<unknown>;
+  saveWorkspace(snapshot: unknown): Promise<{ ok: boolean }>;
   workspace(): Promise<{ outputDir: string; configured: boolean; remoteBackendUrl?: string }>;
   pickImages(multiple?: boolean): Promise<SwFilePick[]>;
   /** 参考图/镜头图片生成(云端图片通道)。 */
@@ -138,6 +141,11 @@ export function swHostApi(): SwHostApi | null {
     listModels: (providerId: string) =>
       (host.listModels as (id: string) => Promise<{ models: string[]; error?: string }>)?.call(host, providerId) ??
       Promise.resolve({ models: [] }),
+    loadWorkspace: () =>
+      (sw?.loadWorkspace as () => Promise<unknown>)?.() ?? Promise.resolve(null),
+    saveWorkspace: (snapshot: unknown) =>
+      (sw?.saveWorkspace as (value: unknown) => Promise<{ ok: boolean }>)?.(snapshot) ??
+      Promise.resolve({ ok: false }),
     // 与替换工作室共用的底层通道(host 顶层方法),按 SwHostApi 契约补齐。
     pickImages: (multiple?: boolean) =>
       (host.pickImages as (m?: boolean) => Promise<SwFilePick[]>)?.(multiple),

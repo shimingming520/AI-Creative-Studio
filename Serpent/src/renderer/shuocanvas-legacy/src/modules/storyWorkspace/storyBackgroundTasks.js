@@ -2,6 +2,30 @@
 const ACTIVE_STATUSES = new Set(["queued", "submitting", "pending", "running", "recovering"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 const MAX_PERSISTED_TASKS = 60;
+const RUNTIME_ACTIVE_TASKS_KEY = "__yuhStoryRuntimeActiveTasks";
+function getRuntimeActiveTasks() {
+  const root = globalThis;
+  if (!(root[RUNTIME_ACTIVE_TASKS_KEY] instanceof Set)) root[RUNTIME_ACTIVE_TASKS_KEY] = new Set();
+  return root[RUNTIME_ACTIVE_TASKS_KEY];
+}
+function runtimeTaskKey(projectId, taskId) {
+  const project = normalizeText(projectId);
+  const task = normalizeText(taskId);
+  return project && task ? project + "::" + task : "";
+}
+function syncRuntimeTaskMarker(projectData = {}, task = {}) {
+  const key = runtimeTaskKey(projectData?.project?.id, task?.id);
+  if (!key) return;
+  if (ACTIVE_STATUSES.has(normalizeText(task?.status).toLowerCase())) getRuntimeActiveTasks().add(key);
+  else getRuntimeActiveTasks().delete(key);
+}
+export function hasStoryBackgroundTaskRuntime(projectData = {}) {
+  const projectId = normalizeText(projectData?.project?.id);
+  if (!projectId) return false;
+  const prefix = projectId + "::";
+  for (const key of getRuntimeActiveTasks()) if (key.startsWith(prefix)) return true;
+  return false;
+}
 function normalizeText(_0x29a19c) {
   return String(_0x29a19c || "").trim();
 }
@@ -129,6 +153,7 @@ export function startStoryBackgroundTask(_0x2833fb = {}, _0x7bd3da = {}) {
   });
   const _0x19309c = getStoryBackgroundTasks(_0x2833fb).filter(_0x459dcb => _0x459dcb.id !== _0x24943c.id);
   setStoryBackgroundTasks(_0x2833fb, [_0x24943c, ..._0x19309c]);
+  syncRuntimeTaskMarker(_0x2833fb, _0x24943c);
   return _0x24943c;
 }
 export function updateStoryBackgroundTask(_0x3face5 = {}, _0x387335 = "", _0x130524 = {}) {
@@ -162,6 +187,7 @@ export function updateStoryBackgroundTask(_0x3face5 = {}, _0x387335 = "", _0x130
   });
   _0x5ada97[_0x42d72e] = _0x33ce0a;
   setStoryBackgroundTasks(_0x3face5, _0x5ada97);
+  syncRuntimeTaskMarker(_0x3face5, _0x33ce0a);
   return _0x33ce0a;
 }
 export function updateStoryBackgroundTaskBatch(_0x159ec4 = {}, _0x127eff = "", _0x207c8e = {}) {
@@ -233,6 +259,7 @@ export function interruptStoryBackgroundTasks(_0x55ea4f = {}, {
   });
   if (_0xe9f57b) {
     setStoryBackgroundTasks(_0x55ea4f, _0x4fe563);
+    _0x4fe563.forEach(_0x30a433 => syncRuntimeTaskMarker(_0x55ea4f, _0x30a433));
   }
   return _0xe9f57b;
 }

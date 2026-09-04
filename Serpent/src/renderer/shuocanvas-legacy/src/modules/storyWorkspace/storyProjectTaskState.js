@@ -1,6 +1,7 @@
 ﻿import { buildStoryBackgroundTaskId, finishStoryBackgroundTask, getStoryBackgroundTasks, getStoryBackgroundTaskSummary, interruptStoryBackgroundTasks, startStoryBackgroundTask } from "./storyBackgroundTasks.js";
 import { getRecoverableStoryClipVideoTask } from "./storyClipGeneration.js";
 import { settleInterruptedStoryVideoReplication } from "./storyVideoReplication.js";
+import { hasStoryBackgroundTaskRuntime } from "./storyBackgroundTasks.js";
 function normalizeText(_0x1dc8a5) {
   return String(_0x1dc8a5 || "").trim();
 }
@@ -66,11 +67,13 @@ export function reconcileStoryClipVideoBackgroundTasks(_0x213fa7 = {}) {
   }
   return _0x3c0127;
 }
-export function reconcilePersistedStoryProjectTasks(_0x785346 = {}) {
+export function reconcilePersistedStoryProjectTasks(_0x785346 = {}, {
+  preserveActiveTasks = hasStoryBackgroundTaskRuntime(_0x785346)
+} = {}) {
   if (!_0x785346?.project) {
     return false;
   }
-  let _0x57ff0d = interruptStoryBackgroundTasks(_0x785346, {
+  let _0x57ff0d = preserveActiveTasks ? 0 : interruptStoryBackgroundTasks(_0x785346, {
     message: "应用上次关闭时任务尚未完成，请重新发起不可恢复的任务。"
   });
   _0x57ff0d += reconcileStoryClipVideoBackgroundTasks(_0x785346);
