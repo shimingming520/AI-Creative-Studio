@@ -14052,11 +14052,33 @@ function replacementStudioWriteIndex(list) {
 function workbenchResourceTree() {
   const outputRoot = configuredOutputDir() || outputDir();
   const studios = [];
-  const rsProjects = replacementStudioReadIndex().map((meta) => ({
-    id: String(meta.id || ""),
-    title: String(meta.title || "未命名替换项目"),
-    dir: node_path.join(outputRoot, "替换工作室", String(meta.id || "")),
-  }));
+  const storedProjects = replacementStudioReadIndex();
+  const existingProjects = [];
+  const rsProjects = [];
+  for (const meta of storedProjects) {
+    const id = String(meta.id || "").trim();
+    if (!id) continue;
+    const dir = node_path.join(outputRoot, "替换工作室", id);
+    // 项目目录被用户从磁盘删除时，同步删除项目元数据，避免下一次
+    // 打开资源管理/工作室又按 projects.json 把目录自动恢复出来。
+    if (!node_fs.existsSync(dir)) {
+      try {
+        node_fs.unlinkSync(replacementStudioProjectFile(id));
+      } catch {}
+      continue;
+    }
+    existingProjects.push(meta);
+    rsProjects.push({
+      id,
+      title: String(meta.title || "未命名替换项目"),
+      dir,
+    });
+  }
+  if (existingProjects.length !== storedProjects.length) {
+    try {
+      replacementStudioWriteIndex(existingProjects);
+    } catch {}
+  }
   // 分类始终存在(即使暂无项目),侧栏才能在对应分级下新增/展示项目目录。
   studios.push({
     studio: "替换工作室",
