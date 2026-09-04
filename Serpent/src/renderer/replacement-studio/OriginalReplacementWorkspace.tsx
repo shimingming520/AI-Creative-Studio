@@ -559,13 +559,6 @@ export function OriginalReplacementWorkspace({
     return () => {
       disposed = true;
       themeObserver.disconnect();
-      if (previousRootTheme == null) root.removeAttribute("data-theme");
-      else root.setAttribute("data-theme", previousRootTheme);
-      root.style.colorScheme = previousRootColorScheme;
-      if (body) {
-        if (previousBodyTheme == null) body.removeAttribute("data-theme");
-        else body.setAttribute("data-theme", previousBodyTheme);
-      }
       if (projectTimer != null) window.clearInterval(projectTimer);
       if (providerRefreshTimer != null) window.clearInterval(providerRefreshTimer);
       if (providerChangeListener) window.removeEventListener("yuh:providers-changed", providerChangeListener);
