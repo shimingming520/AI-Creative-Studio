@@ -2964,6 +2964,7 @@ const HOST_INVOKE_CHANNELS = new Set([
   'serpent:hide',
   'workbench:tree',
   'workbench:ensure-project-dir',
+  'workbench:delete-project',
   'rs:projects-load',
   'rs:project-save',
   'rs:project-delete',
@@ -3127,6 +3128,7 @@ const host = Object.freeze({
   // 确保某个工作台项目资源目录存在(输出根/<项目子目录>)。
   ensureWorkbenchProjectDir: (subdir: string) =>
     hostInvoke('workbench:ensure-project-dir', subdir),
+  deleteWorkbenchProject: (studio: string, projectId: string) => hostInvoke('workbench:delete-project', studio, projectId),
 
   // --- 媒体工具(宫格/拼图/白板导出,复用 YUH utilities 能力) ---
   mt: Object.freeze({

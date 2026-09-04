@@ -93,6 +93,7 @@ export interface RsHostApi {
   ensureWorkbenchProjectDir(
     subdir: string,
   ): Promise<{ ok: boolean; dir?: string; error?: string }>;
+  deleteWorkbenchProject(studio: string, projectId: string): Promise<{ ok: boolean; dir?: string; error?: string }>;
 
   // --- 文件 ---
   pickImages(multiple?: boolean): Promise<RsFilePick[]>;

@@ -13994,6 +13994,7 @@ function registerSerpentIpc() {
   electron.ipcMain.handle("workbench:ensure-project-dir", (_event, subdir) =>
     workbenchEnsureProjectDir(subdir),
   );
+  electron.ipcMain.handle("workbench:delete-project", (_event, studio, projectId) => workbenchDeleteProject(studio, projectId));
   serpentHost.onState((state) => {
     const win = getMainWindow();
     if (win && !win.isDestroyed()) {
@@ -14092,6 +14093,21 @@ function workbenchEnsureProjectDir(subdir) {
     return { ok: false, error: String((error && error.message) || error) };
   }
 }
+function workbenchDeleteProject(studio, projectId) {
+  const outputRoot = configuredOutputDir() || outputDir();
+  const safeStudio = String(studio || "").trim();
+  const safeId = String(projectId || "").trim();
+  if (!safeStudio || !safeId) return { ok: false, error: "缺少项目标识" };
+  const rootResolved = node_path.resolve(outputRoot);
+  const resolved = node_path.resolve(outputRoot, safeStudio, safeId);
+  if (!resolved.startsWith(rootResolved + node_path.sep)) return { ok: false, error: "非法项目目录" };
+  try {
+    node_fs.rmSync(resolved, { recursive: true, force: true });
+    return { ok: true, dir: resolved };
+  } catch (error) {
+    return { ok: false, error: String((error && error.message) || error) };
+  }
+}
 function replacementStudioMeta(project) {
   const p = project || {};
   return {
@@ -14179,7 +14195,8 @@ async function registerReplacementStudioIpc() {
       try {
         node_fs.unlinkSync(replacementStudioProjectFile(id));
       } catch {}
-      return { ok: true };
+      const deleted = workbenchDeleteProject("替换工作室", id);
+      return deleted.ok ? { ok: true } : deleted;
     },
     "rs:detect-people": async (request) => {
       if (!request || !request.providerId || !request.imagePath)

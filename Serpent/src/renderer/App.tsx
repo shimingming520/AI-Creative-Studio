@@ -3429,6 +3429,22 @@ function AppInner() {
     }));
   }, [linkedFolders, workbenchResourceTree]);
 
+  const deleteWorkbenchProject = useCallback(async (project: { id: string; title: string; studio: string; slug: string }) => {
+    if (!window.confirm(`确定删除项目“${project.title}”？\n项目数据和本地资源文件夹都会被删除。`)) return;
+    const host = (window as unknown as { serpent?: { host?: { projectDelete?: (id: string) => Promise<{ ok: boolean; error?: string }>; deleteWorkbenchProject?: (studio: string, id: string) => Promise<{ ok: boolean; error?: string }> } } }).serpent?.host;
+    const result = project.slug === "replacement-studio" && host?.projectDelete
+      ? await host.projectDelete(project.id)
+      : await host?.deleteWorkbenchProject?.(project.studio, project.id);
+    if (!result?.ok) throw new Error(result?.error || "删除项目失败");
+    if (project.slug === "storyboard-script") {
+      try {
+        const list = JSON.parse(localStorage.getItem(STORY_PROJECTS_STORAGE_KEY) || "[]");
+        if (Array.isArray(list)) localStorage.setItem(STORY_PROJECTS_STORAGE_KEY, JSON.stringify(list.filter((item) => String(item?.id || "") !== project.id)));
+      } catch {}
+    }
+    setWorkbenchResourceTree((current) => current?.map((group) => group.slug === project.slug ? { ...group, projects: group.projects.filter((item) => item.id !== project.id) } : group) ?? current);
+  }, []);
+
   // 工作台作用域: 工作室关闭(切回资源库)时, 若记录到正在编辑的工作台项目,
   // 且其资源目录已作为链接文件夹出现, 自动把资源管理定位到该项目(只显示该项目资源)。
   const lastStudioViewRef = useRef<string | null>(null);
@@ -10686,6 +10702,7 @@ function AppInner() {
           if (project.folderId) void chooseFolder(project.folderId);
           else setNotice(`${project.title} 暂无可显示的资源`);
         }}
+        onDeleteWorkbenchProject={(project) => void deleteWorkbenchProject(project).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason)))}
         allAssetCount={allAssetCount}
         rootAssetCount={rootAssetCount}
         trashedAssetCount={trashedAssetCount}

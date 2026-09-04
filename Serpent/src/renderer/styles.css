@@ -1862,10 +1862,18 @@ body.platform-darwin .app-shell.left-collapsed .toolbar-workspace-cluster {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr) 22px;
   align-items: center;
   gap: 2px;
 }
+
+.nav-row-delete { display:grid; width:22px; height:22px; padding:0; place-items:center; border:0; border-radius:5px; background:transparent; color:var(--tertiary); cursor:pointer; opacity:0; }
+.nav-tree-row:hover .nav-row-delete, .nav-row-delete:focus-visible { opacity:1; }
+.nav-row-delete:hover { background:color-mix(in srgb, var(--danger, #d9534f) 16%, transparent); color:var(--danger, #d9534f); }
+.nav-section-disclosure { display:inline-grid; width:16px; height:20px; margin-right:3px; padding:0; place-items:center; border:0; border-radius:4px; background:transparent; color:var(--tertiary); cursor:pointer; }
+.nav-section-disclosure:hover { background:var(--hover); color:var(--text); }
+.nav-section-disclosure.is-expanded { transform:rotate(90deg); }
+.nav-section-title { min-width:0; }
 
 .nav-disclosure,
 .nav-disclosure-spacer {

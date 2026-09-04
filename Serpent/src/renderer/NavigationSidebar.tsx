@@ -96,6 +96,7 @@ function NavRow({
   navFolderId,
   navFolderKind,
   navCollectionId,
+  deleteAction,
 }: {
   icon: IconName;
   label: string;
@@ -122,6 +123,7 @@ function NavRow({
   navFolderKind?: "managed" | "linked";
   /** Focus target for collection keyboard shortcuts. */
   navCollectionId?: string;
+  deleteAction?: { label: string; onClick: () => void };
 }) {
   // CU-D9: always expose the full label on hover; when a status title is also
   // provided (e.g. offline linked folder), append it after the name.
@@ -129,7 +131,7 @@ function NavRow({
     title && title !== label ? `${label} — ${title}` : label;
 
   return (
-    <div className="nav-tree-row">
+    <div className={`nav-tree-row${deleteAction ? " has-row-action" : ""}`}>
       {disclosure ?? <span className="nav-disclosure-spacer" aria-hidden="true" />}
       <button
         className={`nav-row${active ? " is-active" : ""}${dropActive ? " is-drop-target" : ""}`}
@@ -157,6 +159,7 @@ function NavRow({
           </span>
         )}
       </button>
+      {deleteAction ? <button aria-label={deleteAction.label} className="nav-row-delete" onClick={(event) => { event.stopPropagation(); deleteAction.onClick(); }} title={deleteAction.label} type="button">×</button> : null}
     </div>
   );
 }
@@ -483,6 +486,9 @@ function Section({
   secondaryLabel,
   tertiaryAction,
   tertiaryLabel,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapsed,
   children,
 }: {
   title: string;
@@ -497,6 +503,9 @@ function Section({
   /** Extra action rendered with the download icon (e.g. 导出生成记录). */
   tertiaryAction?: () => void;
   tertiaryLabel?: string;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -507,7 +516,8 @@ function Section({
   return (
     <section className="nav-section">
       <div className="nav-section-heading">
-        <span>{title}</span>
+        {collapsible ? <button aria-expanded={!collapsed} aria-label={collapsed ? `展开${title}` : `折叠${title}`} className={`nav-section-disclosure${collapsed ? "" : " is-expanded"}`} onClick={onToggleCollapsed} type="button"><Icon name="chevron-right" size={12} /></button> : null}
+        <span className="nav-section-title">{title}</span>
         {(action || secondaryAction || toggleAction || tertiaryAction) && (
           <span className="nav-section-actions">
             {toggleAction && (
@@ -541,7 +551,7 @@ function Section({
           </span>
         )}
       </div>
-      {children}
+      {!collapsed && children}
     </section>
   );
 }
@@ -602,6 +612,7 @@ export interface NavigationSidebarProps {
     folderId: string | null;
     title: string;
   }) => void;
+  onDeleteWorkbenchProject?: (project: { id: string; title: string; dir: string; folderId: string | null; studio: string; slug: string }) => void;
 
   // --- Data ---
   allAssetCount: number;
@@ -738,6 +749,14 @@ export interface NavigationSidebarProps {
 
 export function NavigationSidebar(props: NavigationSidebarProps) {
   const t = useT();
+  const [collapsedWorkbenchStudios, setCollapsedWorkbenchStudios] = useState<Set<string>>(() => new Set((props.workbenchResourceGroups ?? []).map((group) => group.slug)));
+  const seenWorkbenchStudios = useRef(new Set((props.workbenchResourceGroups ?? []).map((group) => group.slug)));
+  useEffect(() => {
+    const groups = props.workbenchResourceGroups ?? [];
+    const added = groups.map((group) => group.slug).filter((slug) => !seenWorkbenchStudios.current.has(slug));
+    groups.forEach((group) => seenWorkbenchStudios.current.add(group.slug));
+    if (added.length) setCollapsedWorkbenchStudios((current) => new Set([...current, ...added]));
+  }, [props.workbenchResourceGroups]);
   const {
     library,
     assetScope,
@@ -760,6 +779,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
     onExportGenerationRecords,
     workbenchResourceGroups = null,
     onChooseWorkbenchProject,
+    onDeleteWorkbenchProject,
     allAssetCount,
     rootAssetCount,
     trashedAssetCount,
@@ -1576,6 +1596,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
             : `${project.title}（尚未生成资源）`
         }
         onClick={() => onChooseWorkbenchProject?.(project)}
+        deleteAction={{ label: `删除${project.title}`, onClick: () => onDeleteWorkbenchProject?.({ ...project, studio: group.studio, slug: group.slug }) }}
       />
     ));
   }
@@ -1756,7 +1777,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
         ))}
         {library && workbenchResourceGroups
           ? workbenchResourceGroups.map((group) => (
-              <Section key={group.slug} title={group.studio}>
+              <Section key={group.slug} title={group.studio} collapsible collapsed={collapsedWorkbenchStudios.has(group.slug)} onToggleCollapsed={() => setCollapsedWorkbenchStudios((current) => { const next = new Set(current); if (next.has(group.slug)) next.delete(group.slug); else next.add(group.slug); return next; })}>
                 {renderWorkbenchStudioRows(group)}
               </Section>
             ))
