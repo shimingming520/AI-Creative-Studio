@@ -14186,20 +14186,6 @@ async function registerReplacementStudioIpc() {
             "utf8",
           );
           indexById.set(meta.id, meta);
-          // 项目一创建就建立其专属资源目录,资源管理「工作台资源」才能立刻
-          // 出现该项目文件夹(经「ComfyUI 输出」链接递归收录)并只显示本项目资源。
-          try {
-            node_fs.mkdirSync(
-              node_path.join(
-                configuredOutputDir() || outputDir(),
-                "替换工作室",
-                meta.id,
-              ),
-              { recursive: true },
-            );
-          } catch {
-            // 输出目录不可写时忽略,不影响项目元数据保存。
-          }
         }
         replacementStudioWriteIndex([...indexById.values()]);
         return { ok: true };
