@@ -1,14 +1,193 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import "./legacy-story-studio.css";
-import { ensureSwHostApi } from "../storyboard-script/host";
+import { ensureSwHostApi, type SwHostApi } from "../storyboard-script/host";
 import { syncHostedProviderModelCatalog } from "../shuocanvas-legacy/src/modules/hostedProviderModelCatalog.js";
 import { STORY_PROJECTS_STORAGE_KEY } from "./story-studio-data";
 
 const STORY_WORKSPACE_LOCAL_CACHE_KEY = "story-workspace:session-cache:v1";
 
+type StoryTask = {
+  id: string;
+  type: string;
+  label: string;
+  status: string;
+  message?: string;
+  error?: string;
+  startedAt?: number;
+  updatedAt?: number;
+  finishedAt?: number;
+  projectTitle: string;
+  batch?: { completed?: number; total?: number; label?: string } | null;
+};
+type UnknownRecord = Record<string, unknown>;
+
+const ACTIVE_TASK_STATUSES = new Set(["queued", "submitting", "pending", "running", "recovering"]);
+
+function collectStoryTasks(snapshot: unknown): StoryTask[] {
+  const root = snapshot && typeof snapshot === "object" ? snapshot as UnknownRecord : {};
+  const entries = [
+    ...(Array.isArray(root.projects) ? root.projects : []),
+    ...(root.currentData ? [{ data: root.currentData }] : []),
+  ];
+  const seen = new Set<string>();
+  const tasks: StoryTask[] = [];
+  for (const entry of entries) {
+    const record = entry && typeof entry === "object" ? entry as UnknownRecord : {};
+    const data = record.data && typeof record.data === "object" ? record.data as UnknownRecord : record;
+    const project = data.project && typeof data.project === "object" ? data.project as UnknownRecord : {};
+    const title = String(project.title || "未命名项目");
+    for (const rawTask of Array.isArray(project.backgroundTasks) ? project.backgroundTasks : []) {
+      const task = rawTask && typeof rawTask === "object" ? rawTask as UnknownRecord : {};
+      const id = String(task.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      tasks.push({
+        id,
+        type: String(task?.type || "task"),
+        label: String(task?.label || task?.message || "生成任务"),
+        status: String(task?.status || "running").toLowerCase(),
+        message: String(task?.message || ""),
+        error: String(task?.error || ""),
+        startedAt: Number(task?.startedAt) || undefined,
+        updatedAt: Number(task?.updatedAt) || undefined,
+        finishedAt: Number(task?.finishedAt) || undefined,
+        projectTitle: title,
+        batch: task.batch && typeof task.batch === "object" ? task.batch as StoryTask["batch"] : null,
+      });
+    }
+  }
+  return tasks.sort((a, b) => (b.updatedAt || b.startedAt || 0) - (a.updatedAt || a.startedAt || 0));
+}
+
+function formatTaskDuration(task: StoryTask): string {
+  const start = task.startedAt || task.updatedAt;
+  if (!start) return "—";
+  const end = task.finishedAt || Date.now();
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function storyTaskStatusLabel(status: string): string {
+  if (status === "succeeded") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  if (status === "interrupted") return "已中断";
+  return "进行中";
+}
+
+function storyTaskTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    "story-summary": "剧本摘要",
+    "episode-planning": "分集大纲",
+    "episode-script": "分集正文",
+    "episode-split": "分镜拆解",
+    "clip-video": "镜头视频",
+    "asset-image": "角色/素材图",
+    "asset-voice": "角色声音",
+  };
+  return labels[type] || type || "生成任务";
+}
+
+function StoryTaskDrawer({
+  host,
+}: {
+  host: SwHostApi | null;
+}) {
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const [snapshot, setSnapshot] = useState<unknown>(null);
+  const [taskFilter, setTaskFilter] = useState<"all" | "active" | "failed">("all");
+  const tasks = useMemo(() => collectStoryTasks(snapshot), [snapshot]);
+  const visibleTasks = useMemo(
+    () => taskFilter === "active"
+      ? tasks.filter((task) => ACTIVE_TASK_STATUSES.has(task.status))
+      : taskFilter === "failed"
+        ? tasks.filter((task) => task.status === "failed" || task.status === "interrupted")
+        : tasks,
+    [taskFilter, tasks],
+  );
+  useEffect(() => {
+    if (!host) return;
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const next = await host.loadWorkspace();
+        if (!disposed) setSnapshot(next);
+      } catch {
+        // 任务面板是辅助能力，存档暂时不可读时保留已有内容。
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [host]);
+
+  const activeCount = tasks.filter((task) => ACTIVE_TASK_STATUSES.has(task.status)).length;
+  const failedCount = tasks.filter((task) => task.status === "failed" || task.status === "interrupted").length;
+  const cancelVisibleTask = () => {
+    const scope = drawerRef.current?.closest(".legacy-story-studio-overlay") || document;
+    const button = Array.from(scope.querySelectorAll<HTMLElement>("[data-story-action^='cancel-']"))
+      .find((item) => item.offsetParent !== null && !item.hasAttribute("disabled"));
+    button?.click();
+    window.setTimeout(() => host?.loadWorkspace().then(setSnapshot).catch(() => void 0), 350);
+  };
+
+  return (
+    <aside ref={drawerRef} className="story-task-drawer" aria-label="剧本任务记录">
+      <div className="story-task-drawer-head">
+        <div>
+          <strong>任务中心</strong>
+          <span>{activeCount ? `${activeCount} 个进行中` : "当前无进行中任务"}</span>
+        </div>
+        <span className="story-task-count">{tasks.length}</span>
+      </div>
+      <div className="story-task-summary">
+        <span><i className="is-active" />进行中 <b>{activeCount}</b></span>
+        <span><i className="is-failed" />失败 <b>{failedCount}</b></span>
+      </div>
+      <div className="story-task-filters" role="tablist" aria-label="任务筛选">
+        {([["all", "全部"], ["active", "进行中"], ["failed", "失败"]] as const).map(([value, label]) => (
+          <button key={value} type="button" className={taskFilter === value ? "is-active" : ""} onClick={() => setTaskFilter(value)}>{label}</button>
+        ))}
+      </div>
+      <div className="story-task-list">
+        {visibleTasks.slice(0, 18).map((task, taskIndex) => {
+          const active = ACTIVE_TASK_STATUSES.has(task.status);
+          const completed = Number(task.batch?.completed || 0);
+          const total = Number(task.batch?.total || 0);
+          const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : null;
+          return (
+            <article className={`story-task-card status-${task.status}`} key={task.id}>
+              <div className="story-task-card-top">
+                <span className="story-task-badge">{storyTaskStatusLabel(task.status)}</span>
+                <time>{formatTaskDuration(task)}</time>
+              </div>
+              <strong title={task.label}>{storyTaskTypeLabel(task.type)} · {task.label}</strong>
+              <small title={task.projectTitle}>{task.projectTitle}</small>
+              {active && progress !== null && (
+                <div className="story-task-progress"><span style={{ width: `${progress}%` }} /></div>
+              )}
+              <div className="story-task-card-meta">
+                <span>{active && progress !== null ? `${completed}/${total} 项` : task.message || ""}</span>
+                {active && taskIndex === visibleTasks.findIndex((item) => ACTIVE_TASK_STATUSES.has(item.status)) && <button type="button" onClick={cancelVisibleTask}>停止当前任务</button>}
+              </div>
+              {(task.error || task.status === "failed") && <p title={task.error}>{task.error || "任务执行失败，未提供详细原因。"}</p>}
+            </article>
+          );
+        })}
+        {!visibleTasks.length && <p className="story-task-empty">{tasks.length ? "当前筛选条件下没有任务。" : "生成摘要、分集正文或视频后，任务详情会显示在这里。"}</p>}
+      </div>
+    </aside>
+  );
+}
+
 type LegacyStoryStudioWorkspaceProps = {
   onExit: () => void;
+  visible?: boolean;
   onActiveWorkbenchProject?: (project: {
     studio: string;
     slug: string;
@@ -26,21 +205,30 @@ type LegacyStoryStudioWorkspaceProps = {
  */
 export function LegacyStoryStudioWorkspace({
   onExit,
+  visible = true,
 }: LegacyStoryStudioWorkspaceProps) {
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [taskHost, setTaskHost] = useState<SwHostApi | null>(null);
+  const apiRef = useRef<{ activate?: (options?: { previousMode?: string }) => unknown; deactivate?: () => unknown; destroy?: () => void } | null>(null);
+  const visibleRef = useRef(visible);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     let disposed = false;
-    let api: { activate?: (options?: { previousMode?: string }) => unknown; destroy?: () => void } | null = null;
+    let api: { activate?: (options?: { previousMode?: string }) => unknown; deactivate?: () => unknown; destroy?: () => void } | null = null;
     setLoadError(null);
 
     const mount = async () => {
       const root = document.getElementById("v2-wrap");
       if (!root || disposed) return;
       const host = await ensureSwHostApi();
+      setTaskHost(host);
       // 动态注册当前自定义中转站的文本/图片/视频模型，必须在原版
       // 工作区初始化前完成，否则模型菜单只会看到内置清单。
       await syncHostedProviderModelCatalog(host);
@@ -124,7 +312,7 @@ export function LegacyStoryStudioWorkspace({
         }
         // 项目存档和资源目录是两个独立持久化通道。恢复工作区时也要
         // 补建目录，避免“剧本工作室有项目但资源管理没有项目文件夹”。
-        await Promise.all(entries.map((project) =>
+        await Promise.all(entries.map((project: { id: string; title: string }) =>
           host.ensureWorkbenchProjectDir(`剧本工作室/${project.id}`).catch(() => ({ ok: false })),
         ));
       };
@@ -191,7 +379,7 @@ export function LegacyStoryStudioWorkspace({
           } catch {
             // 工作区磁盘存档仍会继续保存。
           }
-          await Promise.all(projectEntries.map((project) =>
+          await Promise.all(projectEntries.map((project: { id: string; title: string }) =>
             host.ensureWorkbenchProjectDir(`剧本工作室/${project.id}`).catch(() => ({ ok: false })),
           ));
           try {
@@ -212,7 +400,9 @@ export function LegacyStoryStudioWorkspace({
         ensureProjectDirectory: (projectId: string) =>
           host.ensureWorkbenchProjectDir(`剧本工作室/${projectId}`),
       });
-      api?.activate?.({ previousMode: "canvas" });
+      apiRef.current = api;
+      if (visibleRef.current) api?.activate?.({ previousMode: "canvas" });
+      else api?.deactivate?.();
     };
 
     void mount().catch((error) => {
@@ -226,9 +416,18 @@ export function LegacyStoryStudioWorkspace({
 
     return () => {
       disposed = true;
+      setTaskHost(null);
+      apiRef.current = null;
       api?.destroy?.();
     };
   }, [retryAttempt]);
+
+  useEffect(() => {
+    const current = apiRef.current;
+    if (!current) return;
+    if (visible) current.activate?.({ previousMode: "canvas" });
+    else current.deactivate?.();
+  }, [visible]);
 
   return (
     <section
@@ -237,6 +436,7 @@ export function LegacyStoryStudioWorkspace({
       aria-label="剧本工作室"
     >
       <div id="v2-wrap" className="legacy-story-studio-mount" />
+      <StoryTaskDrawer host={taskHost} />
       {loadError && (
         <div className="legacy-story-studio-error" role="alert">
           <p>剧本工作室暂时无法连接宿主服务。</p>

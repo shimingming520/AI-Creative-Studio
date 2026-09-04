@@ -1234,6 +1234,8 @@ function AppInner() {
   // YUH 宿主通过 serpent-host:open-view 打开嵌入工作室视图(全屏叠加):
   //   replacement-studio / storyboard-script / media-tools;null = 回到资源库。
   const [activeStudioView, setActiveStudioView] = useState<string | null>(null);
+  // 工作室首次打开后保持挂载，切换页面只隐藏视图，避免销毁后台任务控制器。
+  const [mountedStudioViews, setMountedStudioViews] = useState<Set<string>>(new Set());
   useEffect(() => {
     const host = (
       window as unknown as {
@@ -1242,7 +1244,16 @@ function AppInner() {
     ).serpent?.host;
     if (!host) return;
     return host.onOpenView((viewId) => {
-      setActiveStudioView(viewId && viewId !== "serpent" ? viewId : null);
+      const nextView = viewId && viewId !== "serpent" ? viewId : null;
+      if (nextView) {
+        setMountedStudioViews((current) => {
+          if (current.has(nextView)) return current;
+          const next = new Set(current);
+          next.add(nextView);
+          return next;
+        });
+      }
+      setActiveStudioView(nextView);
     });
   }, []);
   // 当前工作台正在编辑的项目(工作室上报),用于「资源管理」侧栏自动定位到该项目。
@@ -13253,22 +13264,31 @@ function AppInner() {
       )}
     </main>
     {activeStudioView === "replacement-studio" && (
-      <ReplacementStudioWorkspace
-        onExit={() => setActiveStudioView(null)}
-        onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
-      />
+      <div className="studio-view-host">
+        <ReplacementStudioWorkspace
+          onExit={() => setActiveStudioView(null)}
+          onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
+        />
+      </div>
     )}
-    {activeStudioView === "storyboard-script" && (
-      <LegacyStoryStudioWorkspace
-        onExit={() => setActiveStudioView(null)}
-        onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
-      />
+    {mountedStudioViews.has("storyboard-script") && (
+      <div className={activeStudioView === "storyboard-script" ? "studio-view-host" : "studio-view-host studio-view-hidden"}>
+        <LegacyStoryStudioWorkspace
+          visible={activeStudioView === "storyboard-script"}
+          onExit={() => setActiveStudioView(null)}
+          onActiveWorkbenchProject={(project) => setActiveWorkbenchProject(project)}
+        />
+      </div>
     )}
     {activeStudioView === "media-tools" && (
-      <MediaToolsWorkspace onExit={() => setActiveStudioView(null)} />
+      <div className="studio-view-host">
+        <MediaToolsWorkspace onExit={() => setActiveStudioView(null)} />
+      </div>
     )}
     {activeStudioView === "voice-studio" && (
-      <VoiceStudioWorkspace onExit={() => setActiveStudioView(null)} />
+      <div className="studio-view-host">
+        <VoiceStudioWorkspace onExit={() => setActiveStudioView(null)} />
+      </div>
     )}
     </>
   );

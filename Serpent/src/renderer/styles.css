@@ -12391,3 +12391,14 @@ select.ai-config-input.ai-config-languages {
 .plugin-view-host-crashed button:hover {
   background: var(--ui-action-hover);
 }
+.studio-view-host {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+}
+
+/* 视图切换时保留 React/DOM 实例，后台任务继续运行；仅禁止交互并隐藏视觉层。 */
+.studio-view-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}

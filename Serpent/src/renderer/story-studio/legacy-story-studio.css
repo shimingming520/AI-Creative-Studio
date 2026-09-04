@@ -26,6 +26,61 @@
   color: var(--text-primary, #fff);
 }
 
+/* 任务中心固定在工作室右侧，避免挤占剧本主体，也让切页后仍能看到后台状态。 */
+.story-task-drawer {
+  position: absolute;
+  top: 74px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  width: min(330px, 26vw);
+  min-width: 270px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(160, 170, 190, 0.32);
+  border-radius: 16px;
+  color: var(--text-primary, #fff);
+  background: color-mix(in srgb, var(--surface-1, #1c1e24) 92%, transparent);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(16px);
+}
+.story-task-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 16px 12px; border-bottom: 1px solid rgba(160, 170, 190, .16); }
+.story-task-drawer-head strong { display: block; font-size: 15px; }
+.story-task-drawer-head span { display: block; margin-top: 4px; color: var(--text-secondary, #a8a8b3); font-size: 11px; }
+.story-task-count { min-width: 28px; padding: 4px 8px; border-radius: 99px; color: #d9e6ff !important; background: rgba(100, 140, 255, .2); text-align: center; }
+.story-task-summary { display: flex; gap: 18px; padding: 10px 16px; color: var(--text-secondary, #a8a8b3); font-size: 11px; }
+.story-task-summary span { display: inline-flex; align-items: center; gap: 5px; }
+.story-task-summary i { width: 7px; height: 7px; border-radius: 50%; background: #88a8ff; }
+.story-task-summary i.is-failed { background: #ff8989; }
+.story-task-summary b { color: var(--text-primary, #fff); }
+.story-task-filters { display: flex; gap: 5px; padding: 0 12px 8px; }
+.story-task-filters button { border: 0; border-radius: 6px; padding: 4px 8px; color: var(--text-secondary, #9da5b5); background: transparent; font-size: 10px; cursor: pointer; }
+.story-task-filters button.is-active { color: var(--text-primary, #fff); background: rgba(100,140,255,.18); }
+.story-task-list { flex: 1; overflow: auto; padding: 4px 10px 12px; }
+.story-task-card { margin: 6px 0; padding: 10px 11px; border: 1px solid rgba(160, 170, 190, .2); border-radius: 11px; background: rgba(255,255,255,.04); }
+.story-task-card.status-failed { border-color: rgba(255, 120, 120, .44); }
+.story-task-card.status-succeeded { border-color: rgba(115, 210, 160, .34); }
+.story-task-card.status-cancelled, .story-task-card.status-interrupted { border-color: rgba(226, 181, 120, .4); }
+.story-task-card-top, .story-task-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.story-task-card-top { margin-bottom: 7px; }
+.story-task-badge { padding: 2px 7px; border-radius: 99px; color: #bdd0ff; background: rgba(100,140,255,.16); font-size: 10px; }
+.status-succeeded .story-task-badge { color: #a5e2bc; background: rgba(90,190,130,.16); }
+.status-failed .story-task-badge { color: #ffadad; background: rgba(255,90,90,.14); }
+.status-cancelled .story-task-badge, .status-interrupted .story-task-badge { color: #f0c89b; background: rgba(225,160,90,.14); }
+.story-task-card time { color: var(--text-secondary, #8f96a6); font-size: 10px; }
+.story-task-card > strong, .story-task-card > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-task-card > strong { font-size: 12px; }
+.story-task-card > small { margin-top: 4px; color: var(--text-secondary, #929aaa); font-size: 10px; }
+.story-task-progress { height: 4px; margin: 9px 0 7px; overflow: hidden; border-radius: 99px; background: rgba(140,150,170,.2); }
+.story-task-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7a9cff, #9fcbff); transition: width .35s ease; }
+.story-task-card-meta { margin-top: 8px; color: var(--text-secondary, #9da5b5); font-size: 10px; }
+.story-task-card-meta button { border: 1px solid rgba(255,140,140,.45); border-radius: 6px; padding: 3px 8px; color: #ffb3b3; background: rgba(255,90,90,.1); cursor: pointer; }
+.story-task-card > p { margin: 8px 0 0; overflow: hidden; color: #ffaaaa; font-size: 10px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.story-task-empty { margin: 20px 8px; color: var(--text-secondary, #9da5b5); font-size: 12px; line-height: 1.6; text-align: center; }
+@media (max-width: 1100px) { .story-task-drawer { width: 290px; min-width: 0; right: 10px; } }
+@media (max-width: 1100px) { .legacy-story-studio-overlay #storyWorkspaceRoot { right: 0; } }
+
 .legacy-story-studio-mount,
 .legacy-story-studio-overlay #v2-wrap {
   width: 100%;
@@ -35,6 +90,7 @@
 .legacy-story-studio-overlay #storyWorkspaceRoot {
   position: absolute;
   inset: 0;
+  right: 366px;
   z-index: 1;
 }
 
