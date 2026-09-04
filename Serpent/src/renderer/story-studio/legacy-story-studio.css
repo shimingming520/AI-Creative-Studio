@@ -38,14 +38,14 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(160, 170, 190, 0.32);
+  border: 1px solid var(--stroke-strong);
   border-radius: 16px;
   color: var(--text-primary, #fff);
-  background: color-mix(in srgb, var(--surface-1, #1c1e24) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-panel-solid, var(--bg-panel)) 92%, transparent);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(16px);
 }
-.story-task-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 16px 12px; border-bottom: 1px solid rgba(160, 170, 190, .16); }
+.story-task-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 16px 12px; border-bottom: 1px solid var(--stroke-weak); }
 .story-task-drawer-head strong { display: block; font-size: 15px; }
 .story-task-drawer-head span { display: block; margin-top: 4px; color: var(--text-secondary, #a8a8b3); font-size: 11px; }
 .story-task-count { min-width: 28px; padding: 4px 8px; border-radius: 99px; color: #d9e6ff !important; background: rgba(100, 140, 255, .2); text-align: center; }
@@ -58,7 +58,7 @@
 .story-task-filters button { border: 0; border-radius: 6px; padding: 4px 8px; color: var(--text-secondary, #9da5b5); background: transparent; font-size: 10px; cursor: pointer; }
 .story-task-filters button.is-active { color: var(--text-primary, #fff); background: rgba(100,140,255,.18); }
 .story-task-list { flex: 1; overflow: auto; padding: 4px 10px 12px; }
-.story-task-card { margin: 6px 0; padding: 10px 11px; border: 1px solid rgba(160, 170, 190, .2); border-radius: 11px; background: rgba(255,255,255,.04); }
+.story-task-card { margin: 6px 0; padding: 10px 11px; border: 1px solid var(--stroke-default); border-radius: 11px; background: var(--surface-node); }
 .story-task-card.status-failed { border-color: rgba(255, 120, 120, .44); }
 .story-task-card.status-succeeded { border-color: rgba(115, 210, 160, .34); }
 .story-task-card.status-cancelled, .story-task-card.status-interrupted { border-color: rgba(226, 181, 120, .4); }

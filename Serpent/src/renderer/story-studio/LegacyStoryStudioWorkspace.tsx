@@ -110,6 +110,7 @@ function StoryTaskDrawer({
   useEffect(() => {
     if (!host) return;
     let disposed = false;
+    let storyRoot: HTMLElement | null = null;
     const refresh = async () => {
       try {
         const next = await host.loadWorkspace();
@@ -229,10 +230,24 @@ export function LegacyStoryStudioWorkspace({
   useEffect(() => {
     let disposed = false;
     let api: { activate?: (options?: { previousMode?: string }) => unknown; deactivate?: () => unknown; destroy?: () => void } | null = null;
+    let themeObserver: MutationObserver | null = null;
+    let storyRoot: HTMLElement | null = null;
 
     const mount = async () => {
       const root = document.getElementById("v2-wrap");
       if (!root || disposed) return;
+      storyRoot = root;
+      const documentRoot = document.documentElement;
+      const syncTheme = () => {
+        const light = documentRoot.getAttribute("data-theme") === "light" || documentRoot.classList.contains("is-canvas-theme-light");
+        root.classList.toggle("theme-light", light);
+        root.classList.toggle("canvas-theme-light", light);
+        root.classList.toggle("theme-dark", !light);
+        root.classList.toggle("canvas-theme-dark", !light);
+      };
+      syncTheme();
+      themeObserver = new MutationObserver(syncTheme);
+      themeObserver.observe(documentRoot, { attributes: true, attributeFilter: ["data-theme", "class"] });
       const host = await ensureSwHostApi();
       setTaskHost(host);
       // 动态注册当前自定义中转站的文本/图片/视频模型，必须在原版
@@ -422,6 +437,8 @@ export function LegacyStoryStudioWorkspace({
 
     return () => {
       disposed = true;
+      themeObserver?.disconnect();
+      storyRoot?.classList.remove("theme-light", "canvas-theme-light", "theme-dark", "canvas-theme-dark");
       setTaskHost(null);
       apiRef.current = null;
       api?.destroy?.();

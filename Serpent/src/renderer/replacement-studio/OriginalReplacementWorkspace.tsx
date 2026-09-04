@@ -58,26 +58,19 @@ export function OriginalReplacementWorkspace({
     mount.className = "original-replacement-mount theme-dark canvas-theme-dark";
     hostNode.appendChild(mount);
 
-    // ShuoCanvas 的替换工作室始终使用深色主题。YUH 主界面允许跟随系统，
-    // 在 Windows 浅色模式下会把 html[data-theme] 设为 light，导致整个
-    // 原始工作室变成白色；这里在工作室生命周期内锁定深色，并在宿主主题
-    // effect 后再次写回，退出时恢复原值。
+    // ShuoCanvas 工作室复用 Serpent 的主题状态；两个主题入口只保留一个
+    // 真正的数据源，避免主界面切换后工作室仍停留在另一套深色主题。
     const root = document.documentElement;
-    const body = document.body;
-    const previousRootTheme = root.getAttribute("data-theme");
-    const previousRootColorScheme = root.style.colorScheme;
-    const previousBodyTheme = body?.getAttribute("data-theme");
-    const forceDarkTheme = () => {
-      if (root.getAttribute("data-theme") !== "dark") root.setAttribute("data-theme", "dark");
-      root.style.colorScheme = "dark";
-      if (body && body.getAttribute("data-theme") !== "dark") body.setAttribute("data-theme", "dark");
-      mount.classList.add("theme-dark", "canvas-theme-dark");
-      mount.classList.remove("theme-light", "canvas-theme-light");
+    const syncTheme = () => {
+      const light = root.getAttribute("data-theme") === "light" || root.classList.contains("is-canvas-theme-light");
+      mount.classList.toggle("theme-light", light);
+      mount.classList.toggle("canvas-theme-light", light);
+      mount.classList.toggle("theme-dark", !light);
+      mount.classList.toggle("canvas-theme-dark", !light);
     };
-    forceDarkTheme();
-    const themeObserver = new MutationObserver(forceDarkTheme);
+    syncTheme();
+    const themeObserver = new MutationObserver(syncTheme);
     themeObserver.observe(root, { attributes: true, attributeFilter: ["data-theme", "class"] });
-    themeObserver.observe(mount, { attributes: true, attributeFilter: ["class", "data-theme"] });
 
     void (async () => {
       const host = await ensureHostApi().catch(() => null);
