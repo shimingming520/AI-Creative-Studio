@@ -468,6 +468,9 @@ export function initApplicationTheme({
     if (typeof _0x173e3f?.setTheme === "function" && _0x1f4990 !== getUiStoreTheme(_0x173e3f)) {
       _0x173e3f.setTheme(_0x1f4990);
     }
+    window.dispatchEvent(new CustomEvent("serpent-theme-request", {
+      detail: { theme: _0x1f4990, source: "legacy-workspace" }
+    }));
   };
   _0x141156();
   document.querySelectorAll(".cursor-size-btn[data-app-theme]").forEach(_0x496182 => {
@@ -492,6 +495,12 @@ export function initApplicationTheme({
       _0x141156(_0x1e8cc0);
     });
   }
+  window.addEventListener?.("serpent-theme-changed", _0x4a31d8 => {
+    const theme = _0x4a31d8?.detail?.theme;
+    if (theme !== "light" && theme !== "dark") return;
+    const preset = theme === "light" ? "day" : "dusk";
+    if (getBaseThemeForPreset(_0x1e8cc0) !== theme) _0x141156(preset);
+  });
   window.addEventListener?.("aicanvas:runtime-info", () => _0xc51c92());
 }
 export function applyGridDotsPref(_0x2846d2) {

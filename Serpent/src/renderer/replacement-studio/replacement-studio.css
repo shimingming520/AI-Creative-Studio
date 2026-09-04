@@ -7,26 +7,26 @@
 
 .rs-root {
   /* ---- ShuoCanvas design tokens (workspace-studio / variables) ---- */
-  --rs-accent: #a78bfa;               /* --workspace-studio-accent (purple-text) */
-  --rs-accent-strong: #8b5cf6;        /* --workspace-studio-accent-strong (purple) */
-  --rs-accent-soft: rgba(167, 139, 250, 0.12);
-  --rs-accent-border: rgba(167, 139, 250, 0.42);
-  --rs-action-bg: #8b5cf6;            /* --workspace-studio-action-bg */
-  --rs-action-text: rgba(255, 255, 255, 0.95);
-  --rs-contrast-bg: #ffffff;          /* contrast action (white pill) */
-  --rs-contrast-text: rgba(0, 0, 0, 0.95);
-  --rs-bg: #080809;                   /* --bg */
-  --rs-surface: rgba(18, 18, 22, 0.95);              /* --surface-panel */
-  --rs-surface-subtle: rgba(255, 255, 255, 0.05);    /* --surface-node */
-  --rs-surface-float: rgba(18, 18, 26, 0.98);        /* --surface-float */
-  --rs-line: rgba(255, 255, 255, 0.08);              /* --stroke-default */
-  --rs-line-strong: rgba(255, 255, 255, 0.12);       /* --stroke-strong */
-  --rs-text: rgba(255, 255, 255, 0.95);              /* --text-strong */
-  --rs-text-secondary: rgba(255, 255, 255, 0.7);     /* --text-secondary */
-  --rs-text-muted: rgba(255, 255, 255, 0.5);         /* --text-muted */
-  --rs-success: #10b981;
-  --rs-warning: #fbbf24;
-  --rs-danger: #ef4444;
+  --rs-accent: var(--ui-content-accent, #8ab0ff);
+  --rs-accent-strong: var(--ui-action-accent, #3b82f6);
+  --rs-accent-soft: var(--ui-action-accent-soft, rgba(59, 130, 246, 0.14));
+  --rs-accent-border: var(--ui-border-focus, rgba(59, 130, 246, 0.45));
+  --rs-action-bg: var(--ui-action-accent, #3b82f6);
+  --rs-action-text: var(--ui-content-on-accent, #ffffff);
+  --rs-contrast-bg: var(--ui-content-inverse, #202124);
+  --rs-contrast-text: var(--ui-content-primary, #f1f2f4);
+  --rs-bg: var(--ui-surface-canvas, #202124);
+  --rs-surface: var(--ui-surface-pane, #282a2d);
+  --rs-surface-subtle: var(--ui-surface-raised-subtle, #363941);
+  --rs-surface-float: var(--ui-surface-overlay, #343740);
+  --rs-line: var(--ui-border-divider, #3b3e46);
+  --rs-line-strong: var(--ui-border-control, #4b4e59);
+  --rs-text: var(--ui-content-primary, #f1f2f4);
+  --rs-text-secondary: var(--ui-content-secondary, #b4b7c0);
+  --rs-text-muted: var(--ui-content-tertiary, #858995);
+  --rs-success: var(--ui-status-success, #10b981);
+  --rs-warning: var(--ui-status-warning, #fbbf24);
+  --rs-danger: var(--ui-status-danger, #ef4444);
 
   position: fixed;
   inset: var(--rs-header-h, 0) 0 0 0;

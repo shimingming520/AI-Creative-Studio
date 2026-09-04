@@ -94,7 +94,26 @@ export function ThemeProvider({
 
   useEffect(() => {
     applyResolvedTheme(resolved);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('serpent-theme-changed', {
+        detail: { theme: resolved },
+      }));
+    }
   }, [resolved]);
+
+  // 旧版 ShuoCanvas 设置仍提供一个主题入口。把它变成对主主题状态的
+  // 请求，而不是让旧版工作室维护第二份独立的亮暗状态。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onThemeRequest = (event: Event) => {
+      const theme = (event as CustomEvent<{ theme?: unknown }>).detail?.theme;
+      if (theme !== 'light' && theme !== 'dark') return;
+      setStoredTheme(theme, storage);
+      setPreferenceState(theme);
+    };
+    window.addEventListener('serpent-theme-request', onThemeRequest);
+    return () => window.removeEventListener('serpent-theme-request', onThemeRequest);
+  }, [storage]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;

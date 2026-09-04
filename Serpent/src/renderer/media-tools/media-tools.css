@@ -3,11 +3,19 @@
   position: fixed;
   inset: 0;
   z-index: 400;
-  background: var(--surface-0, #17191f);
-  color: var(--text-1, #e8e8ea);
+  background: var(--ui-surface-canvas, #202124);
+  color: var(--ui-content-primary, #f1f2f4);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.mt-workspace {
+  --mt-surface: var(--ui-surface-pane, #282a2d);
+  --mt-raised: var(--ui-surface-raised, #303238);
+  --mt-border: var(--ui-border-divider, #3b3e46);
+  --mt-muted: var(--ui-content-secondary, #b4b7c0);
+  --mt-accent: var(--ui-action-accent, #3b82f6);
 }
 
 .mt-header {
@@ -16,8 +24,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 18px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
-  background: rgba(18, 20, 26, 0.85);
+  border-bottom: 1px solid var(--mt-border);
+  background: color-mix(in srgb, var(--mt-surface) 92%, transparent);
   flex: 0 0 auto;
 }
 .mt-title h1 {
@@ -40,7 +48,7 @@
   display: flex;
   gap: 4px;
   padding: 8px 18px 0;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  border-bottom: 1px solid var(--mt-border);
 }
 .mt-tab {
   border: none;
@@ -93,17 +101,17 @@
   gap: 4px;
   max-width: 720px;
   aspect-ratio: 16 / 10;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--mt-border);
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--mt-surface);
   touch-action: none;
   user-select: none;
 }
 .mt-grid-cell {
   position: relative;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--mt-raised) 72%, transparent);
   outline: 2px solid transparent;
   outline-offset: -2px;
 }
@@ -140,15 +148,15 @@
   gap: 6px;
   max-width: 720px;
   aspect-ratio: 16 / 10;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--mt-border);
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--mt-surface);
 }
 .mt-collage-cell {
   position: relative;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--mt-raised) 72%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -165,10 +173,10 @@
   position: relative;
   max-width: 860px;
   aspect-ratio: 16 / 9;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--mt-border);
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--mt-surface);
 }
 .mt-compare-main img {
   width: 100%;
@@ -213,16 +221,16 @@
   width: 100%;
   max-width: 860px;
   height: 420px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid var(--mt-border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--mt-raised) 72%, transparent);
   touch-action: none;
   cursor: crosshair;
 }
 
 .mt-btn {
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--mt-border);
+  background: color-mix(in srgb, var(--mt-raised) 72%, transparent);
   color: inherit;
   border-radius: 6px;
   padding: 6px 12px;
@@ -230,7 +238,7 @@
   cursor: pointer;
 }
 .mt-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ui-surface-hover, rgba(255, 255, 255, 0.1));
 }
 .mt-btn:disabled {
   opacity: 0.45;
