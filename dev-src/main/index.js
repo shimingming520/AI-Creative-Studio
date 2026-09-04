@@ -14605,8 +14605,31 @@ function storyboardDir() {
     "storyboard-script",
   );
 }
+function storyboardWorkspaceFile() {
+  return node_path.join(storyboardDir(), "workspace.json");
+}
 async function registerStoryWorkflowIpc() {
   const handlers = {
+    "sw:load-workspace": async () => {
+      try {
+        return JSON.parse(node_fs.readFileSync(storyboardWorkspaceFile(), "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return null;
+        console.warn("[storyboard-script] 工作区存档读取失败", error);
+        return null;
+      }
+    },
+    "sw:save-workspace": async (workspace) => {
+      if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
+        throw new Error("无效的剧本工作室存档");
+      }
+      const file = storyboardWorkspaceFile();
+      const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+      node_fs.mkdirSync(storyboardDir(), { recursive: true });
+      node_fs.writeFileSync(temp, JSON.stringify(workspace), "utf8");
+      node_fs.renameSync(temp, file);
+      return { ok: true };
+    },
     "sw:generate-script": async (request) => {
       if (!request || !request.providerId || !request.model)
         throw new Error("参数不足(缺少中转站或模型)");
