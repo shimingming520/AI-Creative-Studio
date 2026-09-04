@@ -130,7 +130,14 @@ function StoryTaskDrawer({
   const failedCount = tasks.filter((task) => task.status === "failed" || task.status === "interrupted").length;
   const cancelVisibleTask = () => {
     const scope = drawerRef.current?.closest(".legacy-story-studio-overlay") || document;
-    const button = Array.from(scope.querySelectorAll<HTMLElement>("[data-story-action^='cancel-']"))
+    const cancellableActions = new Set([
+      "cancel-episode-scripts-batch",
+      "cancel-episode-split-batch",
+      "cancel-asset-batch-generation",
+      "cancel-clip-batch-generation",
+    ]);
+    const button = Array.from(scope.querySelectorAll<HTMLElement>("[data-story-action]"))
+      .filter((item) => cancellableActions.has(item.dataset.storyAction || ""))
       .find((item) => item.offsetParent !== null && !item.hasAttribute("disabled"));
     button?.click();
     window.setTimeout(() => host?.loadWorkspace().then(setSnapshot).catch(() => void 0), 350);
@@ -222,7 +229,6 @@ export function LegacyStoryStudioWorkspace({
   useEffect(() => {
     let disposed = false;
     let api: { activate?: (options?: { previousMode?: string }) => unknown; deactivate?: () => unknown; destroy?: () => void } | null = null;
-    setLoadError(null);
 
     const mount = async () => {
       const root = document.getElementById("v2-wrap");
