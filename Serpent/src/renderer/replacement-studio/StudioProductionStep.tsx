@@ -10,6 +10,7 @@ import {
   iterationReferenceLine,
   letterAt,
   parseDetectedPeople,
+  RS_DEFAULT_DETECT_PROMPT,
   rsId,
   type RsBindingLine,
   type RsGeneratedItem,
@@ -269,7 +270,7 @@ function ProductionLayout({
         const result = await host.detectPeople({
           providerId: project.settings.detectProviderId,
           model: project.settings.detectModel.trim(),
-          prompt: project.settings.detectPrompt,
+          prompt: project.settings.detectPrompt.trim() || RS_DEFAULT_DETECT_PROMPT,
           imagePath: shot.keyframePath,
         });
         const detected = parseDetectedPeople(result?.text || "");

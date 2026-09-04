@@ -43,6 +43,15 @@ const ws = require("ws");
 const sharp = require("sharp");
 const node_os = require("node:os");
 const node_stream = require("node:stream");
+// Node fetch(undici) 默认的 headersTimeout 约为 5 分钟，会早于剧本工作室
+// 的长文本请求上限触发 UND_ERR_HEADERS_TIMEOUT。为长篇 DeepSeek 请求使用
+// 独立 dispatcher，将响应头等待上限与应用请求上限保持一致。
+const { Agent: UndiciAgent } = require("undici");
+const remoteFetchDispatcher = new UndiciAgent({
+  headersTimeout: 15 * 60 * 1e3,
+  bodyTimeout: 0,
+  connectTimeout: 30 * 1e3,
+});
 // Serpent hosted integration (feasibility). Must load before app.ready because
 // Serpent's main module registers privileged schemes at require time.
 const serpentHost = require("../serpent-host");
@@ -4396,12 +4405,28 @@ async function apiFetch(providerId, path, init) {
   if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
   if (!(init?.body instanceof FormData))
     headers.set("Content-Type", "application/json");
-  const requestTimeout = path === provider.chatPath ? 6e5 : 18e4;
-  const response = await fetch(endpoint(provider.baseUrl, path), {
-    ...init,
-    headers,
-    signal: AbortSignal.timeout(requestTimeout),
-  });
+  // 文本生成可能包含长篇剧本/素材抽取；请求超时必须覆盖整个响应头等待阶段。
+  // 界面 IPC 通道同样配置为 15 分钟，避免 UI 先于主进程结束而误报失败。
+  const requestTimeout = path === provider.chatPath ? 9e5 : 18e4;
+  const requestUrl = endpoint(provider.baseUrl, path);
+  let response;
+  try {
+    response = await fetch(requestUrl, {
+      ...init,
+      headers,
+      dispatcher: remoteFetchDispatcher,
+      signal: AbortSignal.timeout(requestTimeout),
+    });
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    const timeoutHint = error?.name === "TimeoutError"
+      ? `请求超过 ${Math.round(requestTimeout / 1e3)} 秒`
+      : "请检查网络、代理、域名和服务端状态";
+    throw new Error(
+      `${provider.name} 请求失败：${timeoutHint}（${cause}）。接口：${requestUrl}`,
+      { cause: error },
+    );
+  }
   if (!response.ok) {
     const raw = await response.text();
     let message2 = raw;
@@ -4438,7 +4463,7 @@ async function apiFetch(providerId, path, init) {
       );
     }
     throw new Error(
-      `${provider.name} 请求失败 (${response.status})：${String(message2).slice(0, 300)}`,
+      `${provider.name} 请求失败 (${response.status})：${String(message2).slice(0, 300)}。接口：${requestUrl}`,
     );
   }
   return response;
@@ -4787,6 +4812,13 @@ async function sendVisionChat(request) {
   return parseChatJsonResponse(response, { model: request.model });
 }
 function chooseImageProtocol(request) {
+  // gpt-image-2 是图像接口模型，不支持 chat/completions。
+  // 即使旧项目或中转站配置残留了 chat-completions，也必须强制走
+  // /v1/images/generations 或 /v1/images/edits，否则中转站会返回
+  // “model gpt-image-2 is only supported on ...”错误。
+  if (/^gpt[-_ ]?image[-_ ]?2(?:$|[-_])/i.test(String(request.model || "").trim())) {
+    return "openai-images";
+  }
   if (request.imageProtocol !== "auto") return request.imageProtocol;
   return /(banana|gemini.*image|image.*gemini)/i.test(request.model)
     ? "chat-completions"
@@ -4851,6 +4883,16 @@ async function uploadVideoReference(providerId, path) {
 }
 async function requestOpenAiImage(request) {
   const { provider } = getProvider(request.providerId);
+  // 自定义中转站的历史配置可能把图片路径保存成聊天路径；对
+  // gpt-image-2 使用 OpenAI 标准图片路由，避免配置残留导致错误分流。
+  const configuredImagesPath = String(provider.imagesPath || "");
+  const configuredEditsPath = String(provider.imageEditsPath || "");
+  const imagesPath = /images\/generations$/i.test(configuredImagesPath)
+    ? configuredImagesPath
+    : "/v1/images/generations";
+  const imageEditsPath = /images\/edits$/i.test(configuredEditsPath)
+    ? configuredEditsPath
+    : "/v1/images/edits";
   const common = {
     model: request.model,
     prompt: request.prompt,
@@ -4864,7 +4906,7 @@ async function requestOpenAiImage(request) {
       : {}),
   };
   if (!request.references.length) {
-    const response2 = await apiFetch(request.providerId, provider.imagesPath, {
+    const response2 = await apiFetch(request.providerId, imagesPath, {
       method: "POST",
       body: JSON.stringify(common),
     });
@@ -4881,7 +4923,7 @@ async function requestOpenAiImage(request) {
       node_path.basename(reference.path),
     );
   }
-  const response = await apiFetch(request.providerId, provider.imageEditsPath, {
+  const response = await apiFetch(request.providerId, imageEditsPath, {
     method: "POST",
     body: form,
   });
@@ -14292,19 +14334,36 @@ async function registerReplacementStudioIpc() {
     },
     "rs:save-data-image": async (request) => {
       if (!request || !request.dataUrl) throw new Error("缺少图片数据");
-      const match = /^data:image\/[\w.+-]+;base64,(.+)$/s.exec(
-        String(request.dataUrl),
-      );
-      if (!match || !match[1]) throw new Error("图片数据格式无效");
+      const dataUrl = String(request.dataUrl).trim();
+      // 定位引导图由前端生成的是 URL 编码 SVG（data:image/svg+xml;charset=utf-8,...），
+      // 普通截图通常是 Base64（data:image/png;base64,...）。两种格式都必须支持。
+      const match = /^data:(image\/[\w.+-]+)(?:;([^,]*))?,([\s\S]*)$/i.exec(dataUrl);
+      if (!match || !match[3]) throw new Error("图片数据格式无效");
+      const mime = String(match[1]).toLowerCase();
+      const metadata = String(match[2] || "").toLowerCase();
+      let bytes;
+      try {
+        if (metadata.split(";").includes("base64")) {
+          bytes = Buffer.from(match[3], "base64");
+        } else {
+          const decoded = decodeURIComponent(match[3]);
+          bytes = Buffer.from(decoded, "utf8");
+        }
+      } catch {
+        throw new Error("图片数据格式无效");
+      }
+      if (!bytes.length) throw new Error("图片数据格式无效");
       const tmp = node_path.join(replacementStudioDir(), "tmp");
       node_fs.mkdirSync(tmp, { recursive: true });
-      const name = String(request.name || "image").replace(/[^\w.-]+/g, "_");
+      const requestedName = String(request.name || "image").replace(/[^\w.-]+/g, "_");
+      const ext = mime === "image/svg+xml" ? ".svg" : mime === "image/jpeg" ? ".jpg" : mime === "image/webp" ? ".webp" : ".png";
+      const name = requestedName.replace(/\.(?:png|jpe?g|webp|svg)$/i, "") || "image";
       const target = node_path.join(
         tmp,
-        `${name}-${/* @__PURE__ */ Date.now()}.png`,
+        `${name}-${/* @__PURE__ */ Date.now()}${ext}`,
       );
-      node_fs.writeFileSync(target, Buffer.from(match[1], "base64"));
-      return { path: target };
+      node_fs.writeFileSync(target, bytes);
+      return { path: target, mime };
     },
     "rs:extract-frame": async (request) => {
       if (!request || !request.file) throw new Error("缺少视频文件");

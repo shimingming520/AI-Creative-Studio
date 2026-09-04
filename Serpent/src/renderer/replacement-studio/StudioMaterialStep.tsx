@@ -12,6 +12,7 @@ import {
   rsId,
   RS_SMART_CLIP_MODES,
   RS_SMART_CLIP_THRESHOLDS,
+  RS_DEFAULT_DETECT_PROMPT,
   type RsAudioAsset,
   type RsPerson,
   type RsProject,
@@ -51,9 +52,63 @@ export function StudioMaterialStep({
   useEffect(() => {
     void ensureHostApi()
       .then((host) => host.listProviders())
-      .then((list) => setProviders((list || []).filter((p) => p.enabled && p.hasApiKey)))
+      .then(async (list) => {
+        const usable = (list || []).filter((p) => p.enabled && p.hasApiKey);
+        setProviders(usable);
+        // 首次进入时自动发现真正支持图片输入的模型。不能直接取 usable[0]：
+        // 本机文本模型通常排在自定义视觉中转站之前，会导致检测请求发送到错误模型。
+        const ranked = [...usable].sort(
+          (a, b) =>
+            Number(String(b.id || "").startsWith("custom-")) -
+            Number(String(a.id || "").startsWith("custom-")),
+        );
+        let selected: { providerId: string; model: string } | null = null;
+        for (const provider of ranked) {
+          try {
+            const result = await ensureHostApi().then((host) => host.listModels(provider.id));
+            const models = Array.isArray(result?.models) ? result.models : [];
+            const vision = models.find((model) =>
+              /(vision|vl|multimodal|deepseek.*flash)/i.test(model),
+            );
+            if (vision) {
+              selected = { providerId: provider.id, model: vision };
+              break;
+            }
+          } catch {
+            // 继续尝试其他已配置中转站；具体错误会在用户点击分析时显示。
+          }
+          const fallback = (provider.defaultModels || []).find((model) =>
+            /(vision|vl|multimodal|deepseek)/i.test(model),
+          );
+          if (fallback) {
+            selected = { providerId: provider.id, model: fallback };
+            break;
+          }
+        }
+        const currentModel = project.settings.detectModel.trim();
+        const currentLooksVision = /(vision|vl|multimodal|deepseek.*flash)/i.test(currentModel);
+        const currentWasAutoFilledTextModel =
+          String(project.settings.detectProviderId || "").startsWith("local-") &&
+          Boolean(currentModel) &&
+          !currentLooksVision;
+        if (
+          selected &&
+          (!project.settings.detectProviderId ||
+            !currentModel ||
+            currentWasAutoFilledTextModel)
+        ) {
+          await onChange((p) => ({
+            ...p,
+            settings: {
+              ...p.settings,
+              detectProviderId: selected!.providerId,
+              detectModel: selected!.model,
+            },
+          }));
+        }
+      })
       .catch(() => void 0);
-  }, []);
+  }, [onChange, project.settings.detectModel, project.settings.detectProviderId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,7 +250,7 @@ export function StudioMaterialStep({
         appendLog(`  镜头 ${shotIndex}/${shotMeta.length} 关键帧完成`);
       }
 
-      const detectPrompt = project.settings.detectPrompt.trim() || "列出图片中所有人物";
+      const detectPrompt = project.settings.detectPrompt.trim() || RS_DEFAULT_DETECT_PROMPT;
       if (!project.settings.detectProviderId || !project.settings.detectModel.trim()) {
         appendLog("3/4 跳过人物检测（请先配置检测中转站与模型）");
         await finishAnalysis();

@@ -6,6 +6,7 @@ import { syncHostedProviderModelCatalog } from "../shuocanvas-legacy/src/modules
 import { STORY_PROJECTS_STORAGE_KEY } from "./story-studio-data";
 
 const STORY_WORKSPACE_LOCAL_CACHE_KEY = "story-workspace:session-cache:v1";
+const STORY_TASK_DRAWER_COLLAPSED_KEY = "story-workspace:task-drawer:collapsed:v1";
 
 type StoryTask = {
   id: string;
@@ -92,8 +93,12 @@ function storyTaskTypeLabel(type: string): string {
 
 function StoryTaskDrawer({
   host,
+  collapsed,
+  onToggleCollapsed,
 }: {
   host: SwHostApi | null;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const drawerRef = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<unknown>(null);
@@ -145,50 +150,70 @@ function StoryTaskDrawer({
   };
 
   return (
-    <aside ref={drawerRef} className="story-task-drawer" aria-label="剧本任务记录">
-      <div className="story-task-drawer-head">
-        <div>
-          <strong>任务中心</strong>
-          <span>{activeCount ? `${activeCount} 个进行中` : "当前无进行中任务"}</span>
-        </div>
-        <span className="story-task-count">{tasks.length}</span>
-      </div>
-      <div className="story-task-summary">
-        <span><i className="is-active" />进行中 <b>{activeCount}</b></span>
-        <span><i className="is-failed" />失败 <b>{failedCount}</b></span>
-      </div>
-      <div className="story-task-filters" role="tablist" aria-label="任务筛选">
-        {([["all", "全部"], ["active", "进行中"], ["failed", "失败"]] as const).map(([value, label]) => (
-          <button key={value} type="button" className={taskFilter === value ? "is-active" : ""} onClick={() => setTaskFilter(value)}>{label}</button>
-        ))}
-      </div>
-      <div className="story-task-list">
-        {visibleTasks.slice(0, 18).map((task, taskIndex) => {
-          const active = ACTIVE_TASK_STATUSES.has(task.status);
-          const completed = Number(task.batch?.completed || 0);
-          const total = Number(task.batch?.total || 0);
-          const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : null;
-          return (
-            <article className={`story-task-card status-${task.status}`} key={task.id}>
-              <div className="story-task-card-top">
-                <span className="story-task-badge">{storyTaskStatusLabel(task.status)}</span>
-                <time>{formatTaskDuration(task)}</time>
-              </div>
-              <strong title={task.label}>{storyTaskTypeLabel(task.type)} · {task.label}</strong>
-              <small title={task.projectTitle}>{task.projectTitle}</small>
-              {active && progress !== null && (
-                <div className="story-task-progress"><span style={{ width: `${progress}%` }} /></div>
-              )}
-              <div className="story-task-card-meta">
-                <span>{active && progress !== null ? `${completed}/${total} 项` : task.message || ""}</span>
-                {active && taskIndex === visibleTasks.findIndex((item) => ACTIVE_TASK_STATUSES.has(item.status)) && <button type="button" onClick={cancelVisibleTask}>停止当前任务</button>}
-              </div>
-              {(task.error || task.status === "failed") && <p title={task.error}>{task.error || "任务执行失败，未提供详细原因。"}</p>}
-            </article>
-          );
-        })}
-        {!visibleTasks.length && <p className="story-task-empty">{tasks.length ? "当前筛选条件下没有任务。" : "生成摘要、分集正文或视频后，任务详情会显示在这里。"}</p>}
-      </div>
+    <aside
+      ref={drawerRef}
+      className={`story-task-drawer${collapsed ? " is-collapsed" : ""}`}
+      aria-label="剧本任务记录"
+    >
+      <button
+        type="button"
+        className="story-task-collapse"
+        title={collapsed ? "展开任务中心" : "收起任务中心"}
+        aria-label={collapsed ? "展开任务中心" : "收起任务中心"}
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapsed}
+      >
+        {collapsed ? "›" : "‹"}
+      </button>
+      {collapsed ? (
+        <span className="story-task-rail-count" title={`${activeCount} 个进行中`}>{activeCount || ""}</span>
+      ) : (
+        <>
+          <div className="story-task-drawer-head">
+            <div>
+              <strong>任务中心</strong>
+              <span>{activeCount ? `${activeCount} 个进行中` : "当前无进行中任务"}</span>
+            </div>
+            <span className="story-task-count">{tasks.length}</span>
+          </div>
+          <div className="story-task-summary">
+            <span><i className="is-active" />进行中 <b>{activeCount}</b></span>
+            <span><i className="is-failed" />失败 <b>{failedCount}</b></span>
+          </div>
+          <div className="story-task-filters" role="tablist" aria-label="任务筛选">
+            {([["all", "全部"], ["active", "进行中"], ["failed", "失败"]] as const).map(([value, label]) => (
+              <button key={value} type="button" className={taskFilter === value ? "is-active" : ""} onClick={() => setTaskFilter(value)}>{label}</button>
+            ))}
+          </div>
+          <div className="story-task-list">
+            {visibleTasks.slice(0, 18).map((task, taskIndex) => {
+              const active = ACTIVE_TASK_STATUSES.has(task.status);
+              const completed = Number(task.batch?.completed || 0);
+              const total = Number(task.batch?.total || 0);
+              const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : null;
+              return (
+                <article className={`story-task-card status-${task.status}`} key={task.id}>
+                  <div className="story-task-card-top">
+                    <span className="story-task-badge">{storyTaskStatusLabel(task.status)}</span>
+                    <time>{formatTaskDuration(task)}</time>
+                  </div>
+                  <strong title={task.label}>{storyTaskTypeLabel(task.type)} · {task.label}</strong>
+                  <small title={task.projectTitle}>{task.projectTitle}</small>
+                  {active && progress !== null && (
+                    <div className="story-task-progress"><span style={{ width: `${progress}%` }} /></div>
+                  )}
+                  <div className="story-task-card-meta">
+                    <span>{active && progress !== null ? `${completed}/${total} 项` : task.message || ""}</span>
+                    {active && taskIndex === visibleTasks.findIndex((item) => ACTIVE_TASK_STATUSES.has(item.status)) && <button type="button" onClick={cancelVisibleTask}>停止当前任务</button>}
+                  </div>
+                  {(task.error || task.status === "failed") && <p title={task.error}>{task.error || "任务执行失败，未提供详细原因。"}</p>}
+                </article>
+              );
+            })}
+            {!visibleTasks.length && <p className="story-task-empty">{tasks.length ? "当前筛选条件下没有任务。" : "生成摘要、分集正文或视频后，任务详情会显示在这里。"}</p>}
+          </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -220,6 +245,24 @@ export function LegacyStoryStudioWorkspace({
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [taskHost, setTaskHost] = useState<SwHostApi | null>(null);
+  const [taskDrawerCollapsed, setTaskDrawerCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(STORY_TASK_DRAWER_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleTaskDrawerCollapsed = () => {
+    setTaskDrawerCollapsed((value) => {
+      const next = !value;
+      try {
+        window.localStorage.setItem(STORY_TASK_DRAWER_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // 折叠状态是纯视觉偏好，本地存储不可用时静默忽略。
+      }
+      return next;
+    });
+  };
   const apiRef = useRef<{ activate?: (options?: { previousMode?: string }) => unknown; deactivate?: () => unknown; destroy?: () => void } | null>(null);
   const visibleRef = useRef(visible);
 
@@ -459,7 +502,7 @@ export function LegacyStoryStudioWorkspace({
       aria-label="剧本工作室"
     >
       <div id="v2-wrap" className="legacy-story-studio-mount" />
-      <StoryTaskDrawer host={taskHost} />
+      <StoryTaskDrawer host={taskHost} collapsed={taskDrawerCollapsed} onToggleCollapsed={toggleTaskDrawerCollapsed} />
       {loadError && (
         <div className="legacy-story-studio-error" role="alert">
           <p>剧本工作室暂时无法连接宿主服务。</p>

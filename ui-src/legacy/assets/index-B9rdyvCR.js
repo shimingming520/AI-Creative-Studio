@@ -76193,6 +76193,8 @@ function convertPathsInObject(obj) {
   return obj;
 }
 const CHANNEL_TIMEOUT_MS = {
+  // 剧本工作室素材提取可能包含多轮长文本请求；必须与主进程的请求上限一致。
+  "sw:generate-script": 15 * 60 * 1e3,
   "vision-reverse:download-model": 24 * 60 * 60 * 1e3,
   "cloud-videos:generate": 24 * 60 * 60 * 1e3,
   "editor:render": 24 * 60 * 60 * 1e3,

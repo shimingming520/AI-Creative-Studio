@@ -170,7 +170,10 @@ export function OriginalReplacementWorkspace({
         const stripped = stripInternalModelPrefix(raw);
         const candidates = [raw, stripped];
         if (kind === "image") {
-          if (/gpt[-_ ]?image[-_ ]?2/i.test(stripped)) candidates.push("gpt-image-2", "gpt-image-1.5");
+          // gpt-image-2 与 gpt-image-1.5 不是兼容别名；中转站可能只为
+          // gpt-image-2 配置了可用通道。绝不能为了“匹配模型清单”把请求
+          // 静默改成 gpt-image-1.5，否则会得到 No available channel 503。
+          if (/^gpt[-_ ]?image[-_ ]?2$/i.test(stripped)) candidates.push("gpt-image-2");
           if (/nano[-_ ]?banana/i.test(stripped)) candidates.push("nano-banana-2", "nano-banana-pro", "nano-banana-fast");
           if (/seedream/i.test(stripped)) candidates.push(stripped.replace(/^[^/]+\//, ""));
         } else {
@@ -188,7 +191,16 @@ export function OriginalReplacementWorkspace({
         if (exact) return exact;
         // 中转站有时会返回带供应商前缀的模型 ID，做一次去前缀匹配。
         const prefixed = models.find((item) => candidates.includes(stripInternalModelPrefix(item).toLowerCase()));
-        return prefixed || "";
+        if (prefixed) return prefixed;
+        // 部分 OpenAI 兼容中转站的 /v1/models 目录与实际图片路由不同步，
+        // 但用户已经验证 POST /images/generations 的 gpt-image-2 可用。
+        // 对自定义中转保留该明确模型 ID，避免目录里错误的旧别名劫持请求。
+        const requested = stripInternalModelPrefix(model);
+        if (kind === "image" && String(provider?.id || "").startsWith("custom-")
+          && /^gpt[-_ ]?image[-_ ]?2$/i.test(requested)) {
+          return "gpt-image-2";
+        }
+        return "";
       };
       const resolveHostedBinding = async (providerHint: unknown, model: unknown, kind: HostedModelKind): Promise<HostedModelBinding> => {
         const providers = (await configuredProviders()).filter((item) => item?.enabled !== false && item?.hasApiKey);
@@ -472,27 +484,80 @@ export function OriginalReplacementWorkspace({
         } : undefined,
         fetchVideoMeta: host ? async (request: any) => host.probe({ file: nativeMediaPath(request) }) : undefined,
         fetchFirstFrame: host ? async (request: any) => host.extractFrameAt({ file: nativeMediaPath(request), timeSec: 0 }) : undefined,
-        // 原始应用调用 detectPeople(imageRef, options)，而宿主 IPC 接收结构化
-        // 请求；没有配置视觉模型时返回空人物列表，仍可完成视频素材处理。
+        // 原始应用调用 detectPeople(imageRef, options)，而宿主 IPC 接收结构化请求。
+        // 自动框选依赖视觉模型；配置缺失或返回格式异常时必须抛错，不能静默变成“0 人”，
+        // 否则用户会误以为自动检测已完成，后续生成又没有可替换区域。
         detectPeople: host ? async (imageRef: any) => {
           const imagePath = nativeMediaPath(imageRef);
-          try {
-            const providers = await host.listProviders();
-            const provider = (providers || []).find((item: any) => item?.enabled && item?.hasApiKey);
-            if (!provider) return { people: [], frame: { path: imagePath } };
-            const response = await host.detectPeople({
-              providerId: provider.id,
-              model: provider.defaultModels?.[0] || "vision",
-              prompt: "返回图片中人物列表及 bbox，使用 JSON 数组格式；没有人物则返回空数组。",
-              imagePath,
-            });
-            const text = String(response?.text || "");
-            const match = text.match(/\[[\s\S]*\]/);
-            const people = match ? JSON.parse(match[0]) : [];
-            return { people: Array.isArray(people) ? people : [], frame: { path: imagePath } };
-          } catch {
-            return { people: [], frame: { path: imagePath } };
+          if (!imagePath) throw new Error("人物检测缺少关键帧路径");
+          const providers = (await host.listProviders())
+            .filter((item: any) => item?.enabled && item?.hasApiKey)
+            .sort((a: any, b: any) => Number(String(b?.id || "").startsWith("custom-")) - Number(String(a?.id || "").startsWith("custom-")));
+          if (!providers.length) throw new Error("未找到已启用且已配置 API Key 的视觉模型，请先配置检测中转站");
+          // 不再把模型硬编码为 `vision`。许多兼容中转站只接受自身真实模型 ID，
+          // 例如 deepseek-v4-flash-vision-exp；先从每个中转站的模型清单中选择
+          // 带 vision/vl/multimodal 特征的模型，再回退到 defaultModels。
+          let provider: any = null;
+          let model = "";
+          for (const candidate of providers) {
+            let models: string[] = [];
+            try {
+              const discovered = await host.listModels(candidate.id);
+              models = Array.isArray(discovered?.models) ? discovered.models.map((item: any) => String(item || "").trim()).filter(Boolean) : [];
+            } catch { /* 继续尝试下一个中转站 */ }
+            // 模型清单通常会同时包含 deepseek-v4-flash（文本）和
+            // deepseek-v4-flash-vision-exp（视觉）。不能用 find() 直接取
+            // 第一个匹配项，否则清单顺序会让文本模型抢先被选中，接口虽
+            // 返回 200，图片内容却可能被忽略，最终表现为没有人物框。
+            const visionModel = models
+              .filter((item) => /(vision|vl|multimodal|deepseek.*flash)/i.test(item))
+              .sort((a, b) => {
+                const score = (value: string) => {
+                  const modelName = value.toLowerCase();
+                  if (/vision|multimodal|(^|[-_])vl([-. _]|$)/i.test(modelName)) return 3;
+                  if (/deepseek.*flash/i.test(modelName)) return 1;
+                  return 2;
+                };
+                return score(b) - score(a);
+              })[0];
+            if (visionModel) { provider = candidate; model = visionModel; break; }
+            const fallbackModel = Array.isArray(candidate.defaultModels) ? candidate.defaultModels.find((item: any) => /(vision|vl|multimodal|deepseek)/i.test(String(item))) : "";
+            if (fallbackModel) { provider = candidate; model = String(fallbackModel); break; }
           }
+          if (!provider) throw new Error("已配置中转站，但未发现可用于图片识别的视觉模型（模型名应包含 vision、VL 或 multimodal）");
+          const response = await host.detectPeople({
+            providerId: provider.id,
+            model,
+            prompt: "识别图片中所有人物，只输出 JSON 数组。每项格式为 {\"label\":\"人物A\",\"bbox\":[x,y,w,h],\"description\":\"外貌简述\"}；bbox 使用 0~1 归一化坐标，顺序为左上角 x、左上角 y、宽、高；没有人物返回空数组。",
+            imagePath,
+          });
+          const text = String(response?.text || "");
+          const match = text.match(/\[[\s\S]*\]/);
+          if (!match) throw new Error("视觉模型未返回有效的人物 bbox JSON");
+          const people = JSON.parse(match[0]);
+          if (!Array.isArray(people)) throw new Error("人物检测结果不是数组");
+          // 视觉模型通常返回 bbox 数组 [x,y,w,h]，而原始 ShuoCanvas
+          // 渲染器读取的是 {x,y,width,height}；不转换会导致坐标全变成 0，
+          // 表现为“识别成功但界面没有框”。
+          const normalizedPeople = people
+            .map((item: any) => {
+              const raw = item?.bbox ?? item?.box;
+              const values = Array.isArray(raw)
+                ? raw.slice(0, 4).map(Number)
+                : [raw?.x, raw?.y, raw?.w ?? raw?.width, raw?.h ?? raw?.height].map(Number);
+              if (values.some((value: number) => !Number.isFinite(value))) return null;
+              const x = Math.max(0, Math.min(1, values[0]));
+              const y = Math.max(0, Math.min(1, values[1]));
+              const width = Math.max(0, Math.min(1 - x, Math.abs(values[2])));
+              const height = Math.max(0, Math.min(1 - y, Math.abs(values[3])));
+              if (width < 0.01 || height < 0.01) return null;
+              return {
+                ...item,
+                bbox: { x, y, width, height },
+              };
+            })
+            .filter(Boolean);
+          return { people: normalizedPeople, frame: { path: imagePath } };
         } : undefined,
         enqueueMediaTask: host ? async (request: any) => {
           const kind = String(request?.kind || "");

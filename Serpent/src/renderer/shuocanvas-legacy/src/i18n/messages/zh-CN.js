@@ -1600,6 +1600,8 @@
   taskCenter: Object.freeze({
     ariaLabel: "任务",
     title: "任务",
+    collapse: "收起任务中心",
+    expand: "展开任务中心",
     clearDone: "清理完成",
     summary: "进行中 {active} · 失败 {failed} · 已完成 {done}",
     unavailableSummary: "当前环境没有桌面后台任务",

@@ -15,7 +15,9 @@ import { buildChatCompletionsStructuredOutput, getTextStructuredOutputRequestMet
 import { ApiError, parseError, parseNetworkError } from "./errors/index.js";
 import { buildRunningHubModelApiUrl, resolveRunningHubModelApiProfileId, resolveRunningHubModelApiBaseUrl } from "../src/modules/runningHubProviderProfiles.js";
 import { normalizeModelProviderProfileId } from "../src/modules/modelProviderProfileSelection.js";
-const GENERATION_TIMEOUT = 300000;
+// 长篇剧本/素材提取可能需要较长的首字节等待时间；默认值与宿主 IPC
+// 和主进程文本请求上限保持一致，避免客户端在 5 分钟处提前中止。
+const GENERATION_TIMEOUT = 900000;
 const MIN_GENERATION_TIMEOUT = 30000;
 const MAX_GENERATION_TIMEOUT = 900000;
 const IMAGE_MENTION_RE = /@图片\d+/g;

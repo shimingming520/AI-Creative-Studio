@@ -8988,7 +8988,13 @@ export function createReplacementStudioWorkspace({
         clientY: clientY
       });
     } else {
-      _0x37a131(_0x12e0ca);
+      // 首次绑定也应同步当前人物在其它关键帧中的同身份框。
+      // 旧逻辑默认 scope=current，导致第一次绑定后其它关键帧仍保持未绑定，
+      // 只有再次拖拽已绑定人物时才会出现“应用全部片段”菜单。
+      _0x37a131({
+        ..._0x12e0ca,
+        scope: "all"
+      });
     }
     _0x2d2968 = {
       assetId: normalizeText(_0x41ec7e.characterId),

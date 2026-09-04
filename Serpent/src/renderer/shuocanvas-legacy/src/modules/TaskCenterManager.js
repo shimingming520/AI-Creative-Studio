@@ -10,6 +10,7 @@ import { showContextMenu } from "./interaction/contextMenuPresenter.js";
 const TERMINAL_STATUSES = new Set(["complete", "failed", "cancelled"]);
 const ACTIVE_STATUSES = new Set(["waiting", "processing"]);
 const MAX_TASKS = 120;
+const TASK_CENTER_COLLAPSED_KEY = "__aiCanvasTaskCenterCollapsed";
 function el(_0x485eab, _0x20c5ff = "", _0x486ca6 = "") {
   const _0x2b7a78 = document.createElement(_0x485eab);
   if (_0x20c5ff) {
@@ -135,7 +136,9 @@ export class TaskCenterManager {
     this.summaryEl = null;
     this.titleEl = null;
     this.clearBtn = null;
+    this.collapseBtn = null;
     this.badgeEl = null;
+    this.isCollapsed = true;
     this.tasks = new Map();
     this.renderTimer = 0;
     this.clockTimer = 0;
@@ -154,14 +157,20 @@ export class TaskCenterManager {
     this.panel = el("div", "v2-task-center-panel canvas-toolbar-panel-surface");
     this.panel.setAttribute("aria-label", taskCenterText("ariaLabel"));
     const _0x354b14 = el("div", "v2-task-center-header");
+    this.collapseBtn = el("button", "v2-task-center-collapse");
+    this.collapseBtn.type = "button";
+    this.collapseBtn.dataset.taskAction = "toggle-collapse";
     this.titleEl = el("div", "v2-task-center-title", taskCenterText("title"));
     this.clearBtn = el("button", "v2-task-center-action", taskCenterText("clearDone"));
     this.clearBtn.type = "button";
     this.clearBtn.dataset.taskAction = "clear-terminal";
-    _0x354b14.append(this.titleEl, this.clearBtn);
+    _0x354b14.append(this.collapseBtn, this.titleEl, this.clearBtn);
     this.summaryEl = el("div", "v2-task-center-summary");
     this.listEl = el("div", "v2-task-center-list");
     this.panel.append(_0x354b14, this.summaryEl, this.listEl);
+    this.setCollapsed(this.readCollapsedState(), {
+      persist: false
+    });
     _0x10fad2.appendChild(this.panel);
     if (_0x487acb) {
       registerSidebarSubmenu({
@@ -247,6 +256,34 @@ export class TaskCenterManager {
     document.getElementById("btnTasks")?.classList.add("active");
     this.render();
     this.startClock();
+  }
+  readCollapsedState() {
+    try {
+      const _0x5df4a7 = globalThis.localStorage?.getItem(TASK_CENTER_COLLAPSED_KEY);
+      return _0x5df4a7 !== "expanded";
+    } catch (_0x4c38f7) {
+      return true;
+    }
+  }
+  setCollapsed(_0x3d4e7c, {
+    persist = true
+  } = {}) {
+    this.isCollapsed = Boolean(_0x3d4e7c);
+    this.panel?.classList.toggle("is-collapsed", this.isCollapsed);
+    if (this.collapseBtn) {
+      this.collapseBtn.textContent = this.isCollapsed ? "›" : "‹";
+      const _0x4f4a4b = taskCenterText(this.isCollapsed ? "expand" : "collapse");
+      this.collapseBtn.setAttribute("aria-label", _0x4f4a4b);
+      this.collapseBtn.title = _0x4f4a4b;
+    }
+    if (persist) {
+      try {
+        globalThis.localStorage?.setItem(TASK_CENTER_COLLAPSED_KEY, this.isCollapsed ? "collapsed" : "expanded");
+      } catch (_0x2be7a1) {}
+    }
+  }
+  toggleCollapsed() {
+    this.setCollapsed(!this.isCollapsed);
   }
   hide() {
     this.closeContextMenu();
@@ -372,6 +409,11 @@ export class TaskCenterManager {
     if (this.titleEl) {
       this.titleEl.textContent = taskCenterText("title");
     }
+    if (this.collapseBtn) {
+      const _0x5f194f = taskCenterText(this.isCollapsed ? "expand" : "collapse");
+      this.collapseBtn.setAttribute("aria-label", _0x5f194f);
+      this.collapseBtn.title = _0x5f194f;
+    }
     this.summaryEl.textContent = _0x49e742 || _0x2a4ede > 0 ? taskCenterText("summary", {
       active: _0x3e36d4.active.length,
       failed: _0x28073c,
@@ -469,6 +511,10 @@ export class TaskCenterManager {
     _0x39127a.preventDefault();
     _0x39127a.stopPropagation();
     const _0x1d5afe = _0x552e82.dataset.taskAction || "";
+    if (_0x1d5afe === "toggle-collapse") {
+      this.toggleCollapsed();
+      return;
+    }
     this.runTaskAction(_0x1d5afe, {
       taskId: _0x552e82.dataset.taskId || "",
       localPath: _0x552e82.dataset.localPath || ""

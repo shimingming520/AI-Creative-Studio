@@ -1600,6 +1600,8 @@
   taskCenter: Object.freeze({
     ariaLabel: "Tasks",
     title: "Tasks",
+    collapse: "Collapse task center",
+    expand: "Expand task center",
     clearDone: "Clear done",
     summary: "Active {active} · Failed {failed} · Done {done}",
     unavailableSummary: "Desktop background tasks are unavailable in this environment",
