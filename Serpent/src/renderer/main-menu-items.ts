@@ -139,6 +139,8 @@ export type MainMenuBuilderInput = {
   readonly platform: CommandPlatform;
   readonly state: MainMenuState;
   readonly actions: MainMenuActions;
+  /** 托管资源管理模式隐藏资源库切换菜单，但保留命令类型兼容旧自动化。 */
+  readonly hideLibrary?: boolean;
 };
 
 function shortcut(platform: CommandPlatform, mac: string, windows: string): string {
@@ -164,13 +166,14 @@ export function buildMainMenuSections({
   platform,
   state,
   actions,
+  hideLibrary = false,
 }: MainMenuBuilderInput): MainMenuSection[] {
   const libraryDisabled = !state.libraryOpen || state.busy;
   const appDisabled = state.busy;
   const selectionDisabled = !state.hasSelectedAssets || state.busy;
   const selectDisabled = !state.hasBrowseAssets || state.busy;
 
-  return [
+  const sections: MainMenuSection[] = [
     {
       id: "file",
       label: label(locale, "shell.mainMenuFile"),
@@ -251,62 +254,21 @@ export function buildMainMenuSections({
         },
       ],
     },
-    {
-      id: "library",
+    ...(!hideLibrary ? [{
+      id: "library" as const,
       label: label(locale, "shell.mainMenuLibrary"),
-      icon: "collection",
+      icon: "collection" as const,
       items: [
-        {
-          id: "library.create",
-          label: label(locale, "shell.createLibraryEllipsis"),
-          disabled: appDisabled,
-          onSelect: actions.createLibrary,
-        },
-        {
-          id: "library.open",
-          label: label(locale, "shell.openLibraryEllipsis"),
-          disabled: appDisabled,
-          onSelect: actions.openLibrary,
-        },
-        {
-          id: "library.close",
-          label: label(locale, "shell.closeLibrary"),
-          disabled: libraryDisabled,
-          onSelect: actions.closeLibrary,
-        },
-        {
-          id: "library.import",
-          label: label(locale, "toolbar.importLibrary"),
-          disabled: libraryDisabled,
-          onSelect: actions.importLibrary,
-        },
-        {
-          id: "library.export",
-          label: label(locale, "toolbar.exportLibrary"),
-          disabled: libraryDisabled,
-          onSelect: actions.exportLibrary,
-        },
-        {
-          id: "library.remove",
-          label: label(locale, "shell.removeLibrary"),
-          disabled: libraryDisabled,
-          onSelect: actions.removeLibrary,
-        },
-        {
-          id: "library.delete-from-disk",
-          label: label(locale, "shell.deleteLibraryFromDisk"),
-          disabled: libraryDisabled,
-          danger: true,
-          onSelect: actions.deleteLibraryFromDisk,
-        },
-        {
-          id: "library.settings",
-          label: label(locale, "settings.librarySettings"),
-          disabled: libraryDisabled,
-          onSelect: actions.openLibrarySettings ?? (() => undefined),
-        },
+        { id: "library.create", label: label(locale, "shell.createLibraryEllipsis"), disabled: appDisabled, onSelect: actions.createLibrary },
+        { id: "library.open", label: label(locale, "shell.openLibraryEllipsis"), disabled: appDisabled, onSelect: actions.openLibrary },
+        { id: "library.close", label: label(locale, "shell.closeLibrary"), disabled: libraryDisabled, onSelect: actions.closeLibrary },
+        { id: "library.import", label: label(locale, "toolbar.importLibrary"), disabled: libraryDisabled, onSelect: actions.importLibrary },
+        { id: "library.export", label: label(locale, "toolbar.exportLibrary"), disabled: libraryDisabled, onSelect: actions.exportLibrary },
+        { id: "library.remove", label: label(locale, "shell.removeLibrary"), disabled: libraryDisabled, onSelect: actions.removeLibrary },
+        { id: "library.delete-from-disk", label: label(locale, "shell.deleteLibraryFromDisk"), disabled: libraryDisabled, danger: true, onSelect: actions.deleteLibraryFromDisk },
+        { id: "library.settings", label: label(locale, "settings.librarySettings"), disabled: libraryDisabled, onSelect: actions.openLibrarySettings ?? (() => undefined) },
       ],
-    },
+    }] : []),
     {
       id: "window",
       label: label(locale, "shell.mainMenuWindow"),
@@ -375,4 +337,5 @@ export function buildMainMenuSections({
       onSelect: actions.openSettings,
     },
   ];
+  return sections;
 }

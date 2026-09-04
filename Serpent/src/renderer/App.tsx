@@ -72,7 +72,7 @@ import { ImportLibraryChooserDialog, OpenLibraryChooserDialog } from "./ImportLi
 import {
   NavigationSidebar,
 } from "./NavigationSidebar";
-import { LibrarySwitcher, buildRecentLibraryMenuEntries, type RecentLibraryMenuEntry } from "./LibrarySwitcher";
+import { buildRecentLibraryMenuEntries, type RecentLibraryMenuEntry } from "./LibrarySwitcher";
 import {
   LibraryLoadingOverlay,
 } from "./LibraryLoadingOverlay";
@@ -3887,6 +3887,9 @@ function AppInner() {
   // Serpent-kipk: no-library surface is the shared create dialog (start phase),
   // full-window centered with backdrop — not a card inside the canvas.
   useEffect(() => {
+    // 托管模式下资源管理由宿主应用统一管理，不显示 Serpent 的“新建资源库”空状态。
+    // 生成内容保存位置会由宿主推送并作为唯一资源根目录。
+    if (IS_SERPENT_HOSTED) return;
     if (library) return;
     if (scriptSandboxPreviewOpen) return;
     // Keep the required start surface closed while any import flow owns the
@@ -3915,6 +3918,7 @@ function AppInner() {
   ]);
   // Yield the required create surface while another full-window modal is up.
   useEffect(() => {
+    if (IS_SERPENT_HOSTED) return;
     if (library) return;
     if (!importLibraryChooserOpen && !openLibraryChooserOpen && !appSettingsOpen) return;
     if (dialog === "library") {
@@ -10374,6 +10378,7 @@ function AppInner() {
       openOpenSourceLicenses: () => setOpenSourceLicensesOpen(true),
       revealAppLog,
     },
+    hideLibrary: IS_SERPENT_HOSTED,
   });
   const mainMenuSectionsRef = useRef(mainMenuSections);
   mainMenuSectionsRef.current = mainMenuSections;
@@ -10524,41 +10529,6 @@ function AppInner() {
                 }}
               />
             )}
-            <LibrarySwitcher
-              busy={busy}
-              disabled={!api}
-              syncStatus={syncBindingStatus}
-              importMenuCopy={importMenuCopy}
-              libraryName={library?.displayName ?? null}
-              libraryOpen={Boolean(library)}
-              onCloseLibrary={() => void closeLibrary()}
-              onRemoveLibrary={() => void removeLibrary()}
-              onDeleteLibraryFromDisk={() => requestDeleteLibraryFromDisk()}
-              onOpenLibrarySettings={() => {
-                setAppSettingsOpen(false);
-                setLibrarySettingsOpen(true);
-              }}
-              onCreateLibrary={() => {
-                setDialogValue(t("shell.myLibrary"));
-                setCreateLibraryPhase("form");
-                setDialog("library");
-              }}
-              onExportLibrary={() => setExportDialogOpen(true)}
-              onImportFolder={() => void importAssets("folder")}
-              onImportLibrary={() => {
-                setOpenLibraryChooserOpen(false);
-                setImportLibraryChooserOpen(true);
-              }}
-              onImportLinkedFolder={() => void importFolderAsLinked()}
-              onMenuOpen={() => void refreshRecentLibraries()}
-              onOpenLibrary={() => {
-                setImportLibraryChooserOpen(false);
-                setOpenLibraryChooserOpen(true);
-              }}
-              onOpenRecent={(path) => void openRecentLibrary(path)}
-              onForgetRecent={(path) => void forgetRecentLibrary(path)}
-              recentLibraries={recentLibraries}
-            />
             <ScopeBreadcrumbs
               onNavigateFolder={(folderId) => void chooseFolder(folderId)}
               onNavigateTrashTombstone={(tombstoneId) => {

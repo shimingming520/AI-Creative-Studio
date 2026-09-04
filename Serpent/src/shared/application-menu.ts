@@ -218,22 +218,6 @@ export function buildApplicationMenuTemplate(
       ]
     : [];
 
-  const librarySubmenu: ApplicationMenuItemTemplate[] = isMac
-    ? [
-        commandItem("library.create", "shell.createLibraryEllipsis"),
-        commandItem("library.open", "shell.openLibraryEllipsis"),
-        { type: "separator" },
-        commandItem("library.close", "shell.closeLibrary"),
-        commandItem("library.remove", "shell.removeLibrary"),
-        commandItem("library.delete-from-disk", "shell.deleteLibraryFromDisk"),
-        { type: "separator" },
-        commandItem("library.import", "toolbar.importLibrary"),
-        commandItem("library.export", "toolbar.exportLibrary"),
-        { type: "separator" },
-        commandItem("library.settings", "settings.librarySettings"),
-      ]
-    : [];
-
   const windowBusinessSubmenu: ApplicationMenuItemTemplate[] = isMac
     ? [
         { type: "separator" },
@@ -259,7 +243,6 @@ export function buildApplicationMenuTemplate(
         { labelKey: "shell.mainMenuFile", submenu: fileSubmenu },
         { labelKey: "shell.mainMenuEdit", submenu: editSubmenu },
         { labelKey: "shell.mainMenuView", submenu: viewSubmenu },
-        { labelKey: "shell.mainMenuLibrary", submenu: librarySubmenu },
         {
           labelKey: "shell.mainMenuWindow",
           submenu: [...windowSubmenu, ...windowBusinessSubmenu],
